@@ -1,0 +1,226 @@
+/** OpenAI Codex CLI driver for EIGENT. */
+import { randomUUID } from "node:crypto"
+import type {
+	AgentDriver,
+	AgentEvent,
+	AgentModel,
+	AgentSession,
+	AgentStatus,
+	StartSessionOptions,
+} from "@eigent/agent-core"
+
+interface CodexDriverOptions {
+	executable?: string
+	models?: string[]
+}
+
+interface CodexSession extends AgentSession {
+	providerSessionId?: string
+	yolo: boolean
+	systemPrompt?: string
+}
+
+interface CodexJsonEvent {
+	type?: string
+	thread_id?: string
+	message?: string
+	error?: { message?: string } | string
+	item?: {
+		id?: string
+		type?: string
+		text?: string
+		command?: string
+		status?: string
+		aggregated_output?: string
+		server?: string
+		tool?: string
+		arguments?: unknown
+		result?: unknown
+	}
+}
+
+async function* lines(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+	const reader = stream.getReader()
+	const decoder = new TextDecoder()
+	let buffer = ""
+	while (true) {
+		const { done, value } = await reader.read()
+		if (done) break
+		buffer += decoder.decode(value, { stream: true })
+		const parts = buffer.split(/\r?\n/)
+		buffer = parts.pop() ?? ""
+		for (const line of parts) if (line.trim()) yield line
+	}
+	buffer += decoder.decode()
+	if (buffer.trim()) yield buffer
+}
+
+function codexEvent(event: CodexJsonEvent): AgentEvent[] {
+	if (event.type === "item.completed" && event.item?.type === "agent_message" && event.item.text) {
+		return [{ type: "message.delta", text: event.item.text }]
+	}
+	if (event.type === "item.completed" && event.item?.type === "reasoning" && event.item.text) {
+		return [{ type: "reasoning.delta", text: event.item.text }]
+	}
+	if (event.type === "item.started" && event.item?.id && event.item.type) {
+		return [
+			{
+				type: "tool.started",
+				id: event.item.id,
+				name: event.item.command ?? event.item.tool ?? event.item.type,
+				input: event.item.arguments,
+			},
+		]
+	}
+	if (event.type === "item.completed" && event.item?.id && event.item.type !== "agent_message") {
+		const name = event.item.command ?? event.item.tool ?? event.item.type ?? "tool"
+		const output = event.item.aggregated_output ?? event.item.result
+		return [
+			...(output !== undefined
+				? [{ type: "tool.output", id: event.item.id, output } as AgentEvent]
+				: []),
+			{ type: "tool.completed", id: event.item.id, name },
+		]
+	}
+	if (event.type === "error" || event.type === "turn.failed") {
+		const message =
+			typeof event.error === "string"
+				? event.error
+				: (event.error?.message ?? event.message ?? "Codex execution failed")
+		return [{ type: "error", message, recoverable: true }]
+	}
+	return []
+}
+
+export class CodexDriver implements AgentDriver {
+	readonly kind = "codex" as const
+	private readonly executable: string
+	private readonly models: string[]
+	private readonly sessions = new Map<string, CodexSession>()
+	private readonly active = new Map<string, ReturnType<typeof Bun.spawn>>()
+
+	constructor(options: CodexDriverOptions = {}) {
+		this.executable = options.executable ?? "codex"
+		this.models = options.models ?? []
+	}
+
+	async startSession(options: StartSessionOptions): Promise<AgentSession> {
+		const session: CodexSession = {
+			id: randomUUID(),
+			provider: this.kind,
+			model: options.model,
+			workspace: options.workspace,
+			state: "starting",
+			createdAt: Date.now(),
+			yolo: options.yolo ?? true,
+			systemPrompt: options.systemPrompt,
+		}
+		this.sessions.set(session.id, session)
+		return { ...session }
+	}
+
+	async *sendMessage(sessionId: string, message: string): AsyncIterable<AgentEvent> {
+		const session = this.sessions.get(sessionId)
+		if (!session) throw new Error(`Unknown Codex session: ${sessionId}`)
+		if (this.active.has(sessionId)) throw new Error("Codex session is already running")
+
+		const prompt =
+			session.systemPrompt && !session.providerSessionId
+				? `${session.systemPrompt}\n\n${message}`
+				: message
+		const common = ["--json", "--skip-git-repo-check", "-m", session.model]
+		if (session.yolo) common.push("--dangerously-bypass-approvals-and-sandbox")
+		const args = session.providerSessionId
+			? [this.executable, "exec", "resume", ...common, session.providerSessionId, prompt]
+			: [this.executable, "exec", ...common, "-C", session.workspace, prompt]
+
+		session.state = "running"
+		yield { type: "state.changed", state: "running" }
+		const proc = Bun.spawn({ cmd: args, cwd: session.workspace, stdout: "pipe", stderr: "pipe" })
+		this.active.set(sessionId, proc)
+
+		try {
+			for await (const line of lines(proc.stdout as ReadableStream<Uint8Array>)) {
+				let parsed: CodexJsonEvent
+				try {
+					parsed = JSON.parse(line) as CodexJsonEvent
+				} catch {
+					continue
+				}
+				if (parsed.type === "thread.started" && parsed.thread_id) {
+					session.providerSessionId = parsed.thread_id
+				}
+				for (const event of codexEvent(parsed)) yield event
+			}
+			const code = await proc.exited
+			if (code === 0) {
+				session.state = "completed"
+				yield { type: "state.changed", state: "completed" }
+			} else if ((session.state as string) !== "interrupted") {
+				const stderr = await new Response(proc.stderr as ReadableStream<Uint8Array>).text()
+				session.state = "failed"
+				yield {
+					type: "error",
+					message: stderr.trim() || `Codex exited with ${code}`,
+					recoverable: true,
+				}
+				yield { type: "state.changed", state: "failed" }
+			}
+		} finally {
+			this.active.delete(sessionId)
+		}
+	}
+
+	async interrupt(sessionId: string): Promise<void> {
+		const session = this.sessions.get(sessionId)
+		const proc = this.active.get(sessionId)
+		if (proc) proc.kill()
+		if (session) session.state = "interrupted"
+	}
+
+	async resume(sessionId: string): Promise<void> {
+		const session = this.sessions.get(sessionId)
+		if (!session) throw new Error(`Unknown Codex session: ${sessionId}`)
+		if (session.state === "interrupted" || session.state === "failed") session.state = "running"
+	}
+
+	async getModels(): Promise<AgentModel[]> {
+		return this.models.map((id) => ({
+			id,
+			name: id,
+			provider: this.kind,
+			reasoning: true,
+			toolCalling: true,
+		}))
+	}
+
+	async getStatus(): Promise<AgentStatus> {
+		const executable = Bun.which(this.executable)
+		if (!executable)
+			return { available: false, authenticated: false, detail: "Codex CLI is not installed" }
+		try {
+			const proc = Bun.spawn({
+				cmd: [executable, "login", "status"],
+				stdout: "pipe",
+				stderr: "pipe",
+			})
+			const [code, stdout, stderr] = await Promise.all([
+				proc.exited,
+				new Response(proc.stdout as ReadableStream<Uint8Array>).text(),
+				new Response(proc.stderr as ReadableStream<Uint8Array>).text(),
+			])
+			const detail = `${stdout}\n${stderr}`.trim()
+			return { available: true, authenticated: code === 0, detail }
+		} catch (err) {
+			return {
+				available: true,
+				authenticated: false,
+				detail: err instanceof Error ? err.message : String(err),
+			}
+		}
+	}
+
+	getDeviceAuthCommand(): string[] {
+		return [this.executable, "login", "--device-auth"]
+	}
+}
