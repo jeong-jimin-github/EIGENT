@@ -17,16 +17,22 @@
 ## 다음 구현 순서
 
 - [x] Browser mode의 Electron-only Git API를 Hono backend로 이전
-- [ ] Workspace / File / PTY / Process API
-- [ ] CodexDriver + ChatGPT/device auth
-- [ ] ClaudeDriver + subscription/API auth
-- [ ] OpenAI/Anthropic compatible drivers
+- [x] Workspace / File / PTY / Process API
+- [x] CodexDriver + ChatGPT/device auth 골격 (실제 Codex CLI E2E 검증은 Issue로 추적)
+- [x] ClaudeDriver + subscription/API auth 골격 (실제 stream-json E2E blocker는 Issue로 추적)
+- [x] OpenAI/Anthropic compatible drivers
 - [ ] Task/session persistence
 - [ ] Persistent Chromium daemon + Playwright/CDP Browser MCP
 - [ ] Browser Live View
 - [ ] KasmVNC + Computer MCP + Take Control
 - [ ] Web Push 및 background lifecycle 연결
 - [ ] 복구/restart/reconnect 로직
+
+## 현재 알려진 blocker
+
+- Claude Code 2.1.238 OAuth 로그인/상태 감지는 정상이나 실제 `/api/agents/.../messages` 호출이 현재 exit code 1로 종료됨.
+- CodexDriver는 Codex CLI 0.150.1 규격에 맞춰 구현했지만 현재 개발 머신에 Codex CLI가 전역 설치되어 있지 않아 실제 E2E 실행은 미검증.
+- Task/session/process 상태는 아직 서버 메모리에만 유지되어 재시작 시 복구되지 않음.
 
 ## 현재 실행 방법
 
