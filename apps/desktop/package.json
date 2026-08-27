@@ -57,7 +57,7 @@
 		"jotai": "^2.17.1",
 		"jotai-family": "^1.0.1",
 		"lucide-react": "^0.564.0",
-		"motion": "^12.34.0",
+		"motion": "^13.1.1",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
 		"react-markdown": "^10.1.0",
