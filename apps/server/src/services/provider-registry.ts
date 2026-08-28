@@ -1,6 +1,7 @@
 /** Provider registry and agent-session routing for EIGENT. */
 
 import { AnthropicCompatibleDriver } from "@eigent/agent-anthropic"
+import { AntigravityDriver } from "@eigent/agent-antigravity"
 import { ClaudeDriver } from "@eigent/agent-claude"
 import { CodexDriver } from "@eigent/agent-codex"
 import type {
@@ -40,6 +41,13 @@ function buildDrivers(): Map<AgentProviderKind, AgentDriver> {
 		"codex",
 		new CodexDriver({
 			models: csv(process.env.EIGENT_CODEX_MODELS),
+		}),
+	)
+	drivers.set(
+		"antigravity",
+		new AntigravityDriver({
+			models: csv(process.env.EIGENT_ANTIGRAVITY_MODELS),
+			homeDir: process.env.EIGENT_ANTIGRAVITY_HOME,
 		}),
 	)
 	drivers.set(
