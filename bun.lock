@@ -81,6 +81,7 @@
       "version": "0.4.0",
       "dependencies": {
         "@eigent/agent-anthropic": "workspace:*",
+        "@eigent/agent-antigravity": "workspace:*",
         "@eigent/agent-claude": "workspace:*",
         "@eigent/agent-codex": "workspace:*",
         "@eigent/agent-core": "workspace:*",
@@ -97,6 +98,17 @@
     },
     "packages/agent-anthropic": {
       "name": "@eigent/agent-anthropic",
+      "version": "0.1.0",
+      "dependencies": {
+        "@eigent/agent-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.2.14",
+        "typescript": "^5.8.3",
+      },
+    },
+    "packages/agent-antigravity": {
+      "name": "@eigent/agent-antigravity",
       "version": "0.1.0",
       "dependencies": {
         "@eigent/agent-core": "workspace:*",
@@ -423,6 +435,8 @@
     "@ecies/ciphers": ["@ecies/ciphers@0.2.5", "", { "peerDependencies": { "@noble/ciphers": "^1.0.0" } }, "sha512-GalEZH4JgOMHYYcYmVqnFirFsjZHeoGMDt9IxEnM9F7GRUUyUksJ7Ou53L83WHJq3RWKD3AcBpo0iQh0oMpf8A=="],
 
     "@eigent/agent-anthropic": ["@eigent/agent-anthropic@workspace:packages/agent-anthropic"],
+
+    "@eigent/agent-antigravity": ["@eigent/agent-antigravity@workspace:packages/agent-antigravity"],
 
     "@eigent/agent-claude": ["@eigent/agent-claude@workspace:packages/agent-claude"],
 

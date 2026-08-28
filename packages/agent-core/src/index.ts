@@ -1,6 +1,12 @@
 /** Provider-independent agent contracts used by the EIGENT server and workers. */
 
-export type AgentProviderKind = "codex" | "claude" | "openai" | "anthropic" | "opencode"
+export type AgentProviderKind =
+	| "codex"
+	| "claude"
+	| "antigravity"
+	| "openai"
+	| "anthropic"
+	| "opencode"
 
 export type AgentSessionState =
 	| "starting"
