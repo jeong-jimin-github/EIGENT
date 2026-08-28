@@ -3,7 +3,7 @@ import { useCallback } from "react"
 import { connectionAtom } from "../atoms/connection"
 import { upsertMessageAtom } from "../atoms/messages"
 import { upsertPartAtom } from "../atoms/parts"
-import { sessionFamily, upsertSessionAtom } from "../atoms/sessions"
+import { removeSessionAtom, sessionFamily, upsertSessionAtom } from "../atoms/sessions"
 import { appStore } from "../atoms/store"
 import { createLogger } from "../lib/logger"
 import type {
@@ -201,7 +201,12 @@ export function useAgentActions() {
 		if (!client) throw new Error("Not connected to OpenCode server")
 		log.debug("deleteSession", { sessionId })
 		try {
-			await client.session.delete({ sessionID: sessionId })
+			const result = await client.session.delete({ sessionID: sessionId }, { throwOnError: true })
+			if (result.data === false) {
+				throw new Error("OpenCode did not delete the session")
+			}
+			// Do not depend on SSE delivery for immediate UI consistency.
+			appStore.set(removeSessionAtom, sessionId)
 		} catch (err) {
 			log.error("deleteSession failed", { sessionId }, err)
 			throw err

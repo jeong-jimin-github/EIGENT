@@ -8,6 +8,7 @@ import type {
 	SidebarProject,
 } from "../../lib/types"
 import { discoveryAtom } from "../discovery"
+import { hiddenProjectDirectoriesAtom } from "../preferences"
 import { sessionFamily, sessionIdsAtom } from "../sessions"
 import { effectivePermissionFamily, effectiveQuestionFamily } from "./session-requests"
 
@@ -96,7 +97,7 @@ export function formatElapsed(startMs: number): string {
 }
 
 function projectNameFromDir(directory: string): string {
-	return directory.split("/").pop() || "/"
+	return directory.split(/[\/]/).filter(Boolean).pop() || directory || "/"
 }
 
 // ============================================================
@@ -382,11 +383,12 @@ export const agentsAtom = (() => {
 	let prevAgents: Agent[] = []
 	return atom((get) => {
 		const sessionIds = get(sessionIdsAtom)
+		const hiddenProjects = new Set(get(hiddenProjectDirectoriesAtom))
 		const agents: Agent[] = []
 
 		for (const id of sessionIds) {
 			const agent = get(agentFamily(id))
-			if (agent) agents.push(agent)
+			if (agent && !hiddenProjects.has(agent.projectDirectory)) agents.push(agent)
 		}
 
 		// Return the previous array if every element is referentially identical.
@@ -473,6 +475,7 @@ export const projectListAtom = (() => {
 	return atom((get) => {
 		const sessionIds = get(sessionIdsAtom)
 		const discovery = get(discoveryAtom)
+		const hiddenProjects = new Set(get(hiddenProjectDirectoriesAtom))
 		const slugMap = get(projectSlugMapAtom)
 		const { sandboxToParent } = get(sandboxMappingsAtom)
 
@@ -495,6 +498,7 @@ export const projectListAtom = (() => {
 			// Remap sandbox directories to their parent project
 			const parentDir = sandboxToParent.get(entry.directory)
 			const dir = parentDir ?? entry.directory
+			if (hiddenProjects.has(dir)) continue
 			const projectInfo = slugMap.get(dir)
 			const name = projectNameFromDir(dir)
 			const sessionTime = entry.session.time.updated ?? entry.session.time.created ?? 0
@@ -536,6 +540,7 @@ export const projectListAtom = (() => {
 		if (discovery.loaded) {
 			for (const project of discovery.projects) {
 				if (!project.worktree) continue
+				if (hiddenProjects.has(project.worktree)) continue
 				if (projects.has(project.worktree)) continue
 				if (sandboxDirs.has(project.worktree)) continue
 

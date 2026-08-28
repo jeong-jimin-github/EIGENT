@@ -1,6 +1,8 @@
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { processEvent } from "../atoms/actions/event-processor"
 import { authHeaderAtom, serverConnectedAtom, serverUrlAtom } from "../atoms/connection"
+import { discoveryAtom } from "../atoms/discovery"
+import { hiddenProjectDirectoriesAtom } from "../atoms/preferences"
 import { batchUpsertPartsAtom } from "../atoms/parts"
 import {
 	SESSIONS_PAGE_SIZE,
@@ -162,6 +164,36 @@ export async function connectToOpenCode(url: string, authHeader?: string | null)
  * List all projects known to the OpenCode server via the API.
  * Uses the base client (no directory scope) since project.list() is global.
  */
+export async function addProject(directory: string) {
+	const normalized = directory.trim()
+	if (!normalized) throw new Error("Project directory is required")
+	const client = getProjectClient(normalized)
+	if (!client) throw new Error("Not connected to OpenCode server")
+
+	const result = await client.project.current({ directory: normalized }, { throwOnError: true })
+	const project = result.data
+	if (!project?.worktree) throw new Error("The server did not recognize this project directory")
+
+	appStore.set(hiddenProjectDirectoriesAtom, (prev) => prev.filter((dir) => dir !== project.worktree))
+	appStore.set(discoveryAtom, (prev) => {
+		const projects = prev.projects.filter((item) => item.worktree !== project.worktree)
+		return { ...prev, loaded: true, projects: [...projects, project] }
+	})
+	await loadProjectSessions(project.worktree)
+	return project
+}
+
+/** Remove a project from the EIGENT workspace UI without deleting files on disk. */
+export function removeProject(directory: string): void {
+	appStore.set(hiddenProjectDirectoriesAtom, (prev) =>
+		prev.includes(directory) ? prev : [...prev, directory],
+	)
+	appStore.set(discoveryAtom, (prev) => ({
+		...prev,
+		projects: prev.projects.filter((project) => project.worktree !== directory),
+	}))
+}
+
 export async function loadAllProjects() {
 	const client = getBaseClient()
 	if (!client) {

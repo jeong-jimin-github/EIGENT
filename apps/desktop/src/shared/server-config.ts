@@ -10,7 +10,7 @@ import type { LocalServerConfig, ServerSettings } from "../preload/api"
 /** The built-in local server entry. Always present, cannot be deleted. */
 export const DEFAULT_LOCAL_SERVER: LocalServerConfig = {
 	id: "local",
-	name: "This Mac",
+	name: "EIGENT Server",
 	type: "local",
 }
 

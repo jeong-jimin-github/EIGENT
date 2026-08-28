@@ -42,6 +42,7 @@ import {
 } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { activeServerConfigAtom } from "../atoms/connection"
+import { useI18n } from "../hooks/use-i18n"
 import { agentFamily, projectSessionIdsFamily, sandboxMappingsAtom } from "../atoms/derived/agents"
 import { automationsEnabledAtom } from "../atoms/feature-flags"
 import { projectPaginationFamily } from "../atoms/sessions"
@@ -87,6 +88,7 @@ interface AppSidebarContentProps {
 	onRenameSession?: (agent: Agent, title: string) => Promise<void>
 	onDeleteSession?: (agent: Agent) => Promise<void>
 	onForkSession?: (agent: Agent) => Promise<void>
+	onRemoveProject?: (project: SidebarProject) => void
 	serverConnected: boolean
 }
 
@@ -106,9 +108,11 @@ export function AppSidebarContent({
 	onRenameSession,
 	onDeleteSession,
 	onForkSession,
+	onRemoveProject,
 	serverConnected,
 }: AppSidebarContentProps) {
 	const navigate = useNavigate()
+	const { t } = useI18n()
 	const routeParams = useParams({ strict: false }) as { sessionId?: string }
 	const selectedSessionId = routeParams.sessionId ?? null
 	const automationsEnabled = useAtomValue(automationsEnabledAtom)
@@ -183,15 +187,15 @@ export function AppSidebarContent({
 						<div className="space-y-2 text-center">
 							{!serverConnected ? (
 								<>
-									<p className="text-sm text-muted-foreground">Server offline</p>
+									<p className="text-sm text-muted-foreground">{t("sidebar.serverOffline")}</p>
 									<p className="text-xs text-muted-foreground/60">
-										Check your connection in Settings
+										{t("sidebar.checkConnection")}
 									</p>
 								</>
 							) : (
 								<>
-									<p className="text-sm text-muted-foreground">No projects yet</p>
-									<p className="text-xs text-muted-foreground/60">Add a project to get started</p>
+									<p className="text-sm text-muted-foreground">{t("sidebar.noProjects")}</p>
+									<p className="text-xs text-muted-foreground/60">{t("sidebar.addProjectHint")}</p>
 								</>
 							)}
 						</div>
@@ -204,23 +208,23 @@ export function AppSidebarContent({
 					<SidebarMenu>
 						<SidebarMenuItem>
 							<SidebarMenuButton
-								tooltip="New Session"
+								tooltip={t("sidebar.newSession")}
 								onClick={() => navigate({ to: "/" })}
 								className="text-muted-foreground"
 							>
 								<PlusIcon className="size-4" />
-								<span>New Session</span>
+								<span>{t("sidebar.newSession")}</span>
 							</SidebarMenuButton>
 						</SidebarMenuItem>
 						{automationsEnabled && isLocalServer && (
 							<SidebarMenuItem>
 								<SidebarMenuButton
-									tooltip="Automations"
+									tooltip={t("sidebar.automations")}
 									onClick={() => navigate({ to: "/automations" })}
 									className="text-muted-foreground"
 								>
 									<BotIcon className="size-4" />
-									<span>Automations</span>
+									<span>{t("sidebar.automations")}</span>
 								</SidebarMenuButton>
 							</SidebarMenuItem>
 						)}
@@ -231,7 +235,7 @@ export function AppSidebarContent({
 				{/* Active Now */}
 				{activeSessions.length > 0 && (
 					<SidebarGroup>
-						<SidebarGroupLabel>Active Now</SidebarGroupLabel>
+						<SidebarGroupLabel>{t("sidebar.activeNow")}</SidebarGroupLabel>
 						<SidebarGroupContent>
 							<SidebarMenu>
 							{activeSessions.map((agent) => (
@@ -253,7 +257,7 @@ export function AppSidebarContent({
 				{/* Recent */}
 				{recentSessions.length > 0 && (
 					<SidebarGroup>
-						<SidebarGroupLabel>Recent</SidebarGroupLabel>
+						<SidebarGroupLabel>{t("sidebar.recent")}</SidebarGroupLabel>
 						<SidebarGroupContent>
 							<SidebarMenu>
 							{recentSessions.map((agent) => (
@@ -278,7 +282,7 @@ export function AppSidebarContent({
 				)}
 				{hasContent && (
 					<SidebarGroup>
-						<SidebarGroupLabel>Projects</SidebarGroupLabel>
+						<SidebarGroupLabel>{t("sidebar.projects")}</SidebarGroupLabel>
 						{/* Action buttons row */}
 						<div className="absolute top-3.5 right-3 flex max-w-[calc(100%-4rem)] items-center gap-0.5 overflow-hidden">
 							<Tooltip>
@@ -300,10 +304,10 @@ export function AppSidebarContent({
 									) : (
 										<SearchIcon className="size-4 shrink-0" />
 									)}
-									<span className="sr-only">Search projects</span>
+									<span className="sr-only">{t("sidebar.searchProjects")}</span>
 								</TooltipTrigger>
 								<TooltipContent side="bottom">
-									{projectSearchActive ? "Close search" : "Search projects"}
+									{projectSearchActive ? t("sidebar.closeSearch") : t("sidebar.searchProjects")}
 								</TooltipContent>
 							</Tooltip>
 							<Tooltip>
@@ -317,9 +321,9 @@ export function AppSidebarContent({
 									}
 								>
 									<CommandIcon className="size-4 shrink-0" />
-									<span className="sr-only">Command palette</span>
+									<span className="sr-only">{t("sidebar.commandPalette")}</span>
 								</TooltipTrigger>
-								<TooltipContent side="bottom">Command palette (&#8984;K)</TooltipContent>
+								<TooltipContent side="bottom">{t("sidebar.commandPalette")} (&#8984;K)</TooltipContent>
 							</Tooltip>
 							{onAddProject && (
 								<Tooltip>
@@ -333,9 +337,9 @@ export function AppSidebarContent({
 										}
 									>
 										<PlusIcon className="size-4 shrink-0" />
-										<span className="sr-only">Add Project</span>
+										<span className="sr-only">{t("sidebar.addProject")}</span>
 									</TooltipTrigger>
-									<TooltipContent side="bottom">Add project</TooltipContent>
+									<TooltipContent side="bottom">{t("sidebar.addProject")}</TooltipContent>
 								</Tooltip>
 							)}
 						</div>
@@ -352,7 +356,7 @@ export function AppSidebarContent({
 											toggleProjectSearch()
 										}
 									}}
-									placeholder="Filter projects..."
+									placeholder={t("sidebar.filterProjects")}
 									className="h-7 text-xs"
 								/>
 							</div>
@@ -368,11 +372,12 @@ export function AppSidebarContent({
 									onRename={onRenameSession}
 									onDelete={onDeleteSession}
 									onFork={onForkSession}
+									onRemoveProject={onRemoveProject}
 								/>
 							))}
 								{projectSearch && filteredProjects.length === 0 && (
 									<p className="px-2 py-1.5 text-xs text-muted-foreground/60">
-										No projects match &ldquo;{projectSearch}&rdquo;
+										{t("sidebar.noProjectMatches")} &ldquo;{projectSearch}&rdquo;
 									</p>
 								)}
 							</SidebarMenu>
@@ -385,12 +390,12 @@ export function AppSidebarContent({
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<SidebarMenuButton
-							tooltip="Settings"
+							tooltip={t("sidebar.settings")}
 							onClick={() => navigate({ to: "/settings" })}
 							className="text-muted-foreground"
 						>
 							<SettingsIcon className="size-4" />
-							<span>Settings</span>
+							<span>{t("sidebar.settings")}</span>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
@@ -446,14 +451,17 @@ const ProjectFolder = memo(function ProjectFolder({
 	onRename,
 	onDelete,
 	onFork,
+	onRemoveProject,
 }: {
 	project: SidebarProject
 	selectedSessionId: string | null
 	onRename?: (agent: Agent, title: string) => Promise<void>
 	onDelete?: (agent: Agent) => Promise<void>
 	onFork?: (agent: Agent) => Promise<void>
+	onRemoveProject?: (project: SidebarProject) => void
 }) {
 	const navigate = useNavigate()
+	const { t } = useI18n()
 	const [expanded, setExpanded] = useState(false)
 
 	// Subscribe to just this project's session IDs
@@ -502,25 +510,41 @@ const ProjectFolder = memo(function ProjectFolder({
 	const isInitialLoading = expanded && !pagination.loaded && !pagination.loading
 	const isLoading = pagination.loading || isInitialLoading
 
+	const projectButton = (
+		<SidebarMenuButton
+			tooltip={project.name}
+			onClick={() => {
+				setExpanded(!expanded)
+				navigate({
+					to: "/project/$projectSlug",
+					params: { projectSlug: project.slug },
+				})
+			}}
+		>
+			<ChevronRightIcon
+				className="size-3 shrink-0 text-muted-foreground transition-transform duration-150 ease-out"
+				style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+			/>
+			<span className="truncate font-medium">{project.name}</span>
+		</SidebarMenuButton>
+	)
+
 	return (
 		<SidebarMenuItem>
 			<Collapsible open={expanded} onOpenChange={setExpanded}>
-				<SidebarMenuButton
-					tooltip={project.name}
-					onClick={() => {
-						setExpanded(!expanded)
-						navigate({
-							to: "/project/$projectSlug",
-							params: { projectSlug: project.slug },
-						})
-					}}
-				>
-					<ChevronRightIcon
-						className="size-3 shrink-0 text-muted-foreground transition-transform duration-150 ease-out"
-						style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
-					/>
-					<span className="truncate font-medium">{project.name}</span>
-				</SidebarMenuButton>
+				{onRemoveProject ? (
+					<ContextMenu>
+						<ContextMenuTrigger render={projectButton} />
+						<ContextMenuContent>
+							<ContextMenuItem variant="destructive" onSelect={() => onRemoveProject(project)}>
+								<TrashIcon className="size-4" />
+								{t("sidebar.removeProject")}
+							</ContextMenuItem>
+						</ContextMenuContent>
+					</ContextMenu>
+				) : (
+					projectButton
+				)}
 
 				<CollapsibleContent
 					keepMounted
@@ -531,7 +555,7 @@ const ProjectFolder = memo(function ProjectFolder({
 							<SidebarMenuItem>
 								<SidebarMenuButton
 									size="sm"
-									tooltip="Project tools"
+									tooltip={t("sidebar.projectTools")}
 									onClick={() =>
 										navigate({
 											to: "/project/$projectSlug/tools",
@@ -540,17 +564,17 @@ const ProjectFolder = memo(function ProjectFolder({
 									}
 								>
 									<WrenchIcon className="size-3.5" />
-									<span>Project tools</span>
+									<span>{t("sidebar.projectTools")}</span>
 								</SidebarMenuButton>
 							</SidebarMenuItem>
 						</SidebarMenu>
 						{isLoading && projectSessions.length === 0 ? (
 							<p className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-muted-foreground/60">
 								<Loader2Icon className="size-3 animate-spin" />
-								Loading sessions...
+								{t("sidebar.loadingSessions")}
 							</p>
 						) : pagination.loaded && projectSessions.length === 0 ? (
-							<p className="px-2 py-1.5 text-xs text-muted-foreground/60">No sessions yet</p>
+							<p className="px-2 py-1.5 text-xs text-muted-foreground/60">{t("sidebar.noSessions")}</p>
 						) : (
 							<SidebarMenu>
 							{projectSessions.map((agent) => (
@@ -573,12 +597,12 @@ const ProjectFolder = memo(function ProjectFolder({
 										{pagination.loading ? (
 											<span className="flex items-center gap-1">
 												<Loader2Icon className="size-3 animate-spin" />
-												Loading...
+												{t("common.loading")}
 											</span>
 										) : (
 											<span className="flex items-center gap-1">
 												<ChevronDownIcon className="size-3" />
-												Load more sessions
+												{t("sidebar.loadMore")}
 											</span>
 										)}
 									</button>
@@ -639,6 +663,7 @@ const SessionItem = memo(function SessionItem({
 	compact?: boolean
 }) {
 	const navigate = useNavigate()
+	const { t } = useI18n()
 	const [, startTransition] = useTransition()
 	const StatusIcon = STATUS_ICON[agent.status]
 	const statusColor = STATUS_COLOR[agent.status]
@@ -745,20 +770,20 @@ const SessionItem = memo(function SessionItem({
 				{onRename && (
 					<ContextMenuItem onSelect={startEditing}>
 						<PencilIcon className="size-4" />
-						Rename
+						{t("sidebar.rename")}
 					</ContextMenuItem>
 				)}
 				{onFork && (
 					<ContextMenuItem onSelect={() => onFork(agent)}>
 						<GitForkIcon className="size-4" />
-						Fork
+						{t("sidebar.fork")}
 					</ContextMenuItem>
 				)}
 				{(onRename || onFork) && onDelete && <ContextMenuSeparator />}
 				{onDelete && (
 					<ContextMenuItem variant="destructive" onSelect={() => onDelete(agent)}>
 						<TrashIcon className="size-4" />
-						Delete
+						{t("sidebar.delete")}
 					</ContextMenuItem>
 				)}
 			</ContextMenuContent>

@@ -94,6 +94,12 @@ export const themeAtom = atomWithStorage<string>("palot:theme", "default")
 
 export const colorSchemeAtom = atomWithStorage<ColorScheme>("palot:colorScheme", "dark")
 
+/** Project directories explicitly removed from the EIGENT workspace UI. */
+export const hiddenProjectDirectoriesAtom = atomWithStorage<string[]>(
+	"eigent:hiddenProjects",
+	[],
+)
+
 /**
  * Whether the user prefers opaque (non-transparent) windows.
  * When true, the renderer uses solid backgrounds instead of semi-transparent.

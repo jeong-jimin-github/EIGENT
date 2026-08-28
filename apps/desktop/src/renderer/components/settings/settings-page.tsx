@@ -7,45 +7,20 @@ import {
 	SidebarMenuItem,
 } from "@palot/ui/components/sidebar"
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
-import {
-	ArrowLeftIcon,
-	BellIcon,
-	GitForkIcon,
-	InfoIcon,
-	PlugIcon,
-	ServerIcon,
-	SettingsIcon,
-	WrenchIcon,
-} from "lucide-react"
+import { ArrowLeftIcon, BellIcon, GitForkIcon, PlugIcon, SettingsIcon } from "lucide-react"
 import { useEffect } from "react"
+import { useI18n } from "../../hooks/use-i18n"
+import type { TranslationKey } from "../../lib/i18n"
 import { useSetSidebarSlot } from "../sidebar-slot-context"
 
-// ============================================================
-// Tab definitions
-// ============================================================
+type SettingsTab = "general" | "notifications" | "providers" | "worktrees"
 
-type SettingsTab =
-	| "general"
-	| "servers"
-	| "notifications"
-	| "providers"
-	| "worktrees"
-	| "setup"
-	| "about"
-
-const tabs: { id: SettingsTab; label: string; icon: typeof SettingsIcon }[] = [
-	{ id: "general", label: "General", icon: SettingsIcon },
-	{ id: "servers", label: "Servers", icon: ServerIcon },
-	{ id: "notifications", label: "Notifications", icon: BellIcon },
-	{ id: "providers", label: "Providers", icon: PlugIcon },
-	{ id: "worktrees", label: "Worktrees", icon: GitForkIcon },
-	{ id: "setup", label: "Setup", icon: WrenchIcon },
-	{ id: "about", label: "About", icon: InfoIcon },
+const tabs: { id: SettingsTab; labelKey: TranslationKey; icon: typeof SettingsIcon }[] = [
+	{ id: "general", labelKey: "settings.general", icon: SettingsIcon },
+	{ id: "notifications", labelKey: "settings.notifications", icon: BellIcon },
+	{ id: "providers", labelKey: "settings.providers", icon: PlugIcon },
+	{ id: "worktrees", labelKey: "settings.worktrees", icon: GitForkIcon },
 ]
-
-// ============================================================
-// Settings layout (renders <Outlet /> for child routes)
-// ============================================================
 
 export function SettingsPage() {
 	const { setContent, setFooter } = useSetSidebarSlot()
@@ -68,15 +43,10 @@ export function SettingsPage() {
 	)
 }
 
-// ============================================================
-// Sidebar content injected via slot context
-// ============================================================
-
 function SettingsSidebarContent() {
 	const navigate = useNavigate()
 	const pathname = useRouterState({ select: (s) => s.location.pathname })
-
-	// Derive active tab from the last path segment (e.g. "/settings/general" -> "general")
+	const { t } = useI18n()
 	const activeTab = pathname.split("/").pop() || "general"
 
 	return (
@@ -90,21 +60,22 @@ function SettingsSidebarContent() {
 							className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
 						>
 							<ArrowLeftIcon aria-hidden="true" className="size-4" />
-							Back to app
+							{t("settings.back")}
 						</button>
 					</div>
 					<SidebarMenu>
 						{tabs.map((tab) => {
 							const Icon = tab.icon
+							const label = t(tab.labelKey)
 							return (
 								<SidebarMenuItem key={tab.id}>
 									<SidebarMenuButton
 										isActive={activeTab === tab.id}
 										onClick={() => navigate({ to: `/settings/${tab.id}` })}
-										tooltip={tab.label}
+										tooltip={label}
 									>
 										<Icon aria-hidden="true" className="size-4" />
-										<span>{tab.label}</span>
+										<span>{label}</span>
 									</SidebarMenuButton>
 								</SidebarMenuItem>
 							)

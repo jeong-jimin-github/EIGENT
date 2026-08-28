@@ -53,6 +53,7 @@ import {
 	useProviders,
 	useVcs,
 } from "../hooks/use-opencode-data"
+import { useI18n } from "../hooks/use-i18n"
 import { useAgentActions } from "../hooks/use-server"
 import type { FileAttachment } from "../lib/types"
 import {
@@ -66,7 +67,7 @@ import { useSetAppBarContent } from "./app-bar-context"
 import { BranchPicker } from "./branch-picker"
 import { PromptAttachmentPreview } from "./chat/prompt-attachments"
 import { PromptToolbar, StatusBar } from "./chat/prompt-toolbar"
-import { PalotWordmark } from "./palot-wordmark"
+import { EigentWordmark } from "./eigent-wordmark"
 
 // ============================================================
 // Worktree mode toggle
@@ -79,6 +80,7 @@ function WorktreeToggle({
 	mode: "local" | "worktree"
 	onModeChange: (mode: "local" | "worktree") => void
 }) {
+	const { t } = useI18n()
 	return (
 		<div className="flex items-center rounded-md border border-border/40">
 			<Tooltip>
@@ -96,9 +98,9 @@ function WorktreeToggle({
 					}
 				>
 					<MonitorIcon className="size-3" />
-					<span>Local</span>
+					<span>{t("newChat.local")}</span>
 				</TooltipTrigger>
-				<TooltipContent side="top">Run in your current working directory</TooltipContent>
+				<TooltipContent side="top">{t("newChat.localHint")}</TooltipContent>
 			</Tooltip>
 			<Tooltip>
 				<TooltipTrigger
@@ -115,11 +117,9 @@ function WorktreeToggle({
 					}
 				>
 					<GitForkIcon className="size-3" />
-					<span>Worktree</span>
+					<span>{t("newChat.worktree")}</span>
 				</TooltipTrigger>
-				<TooltipContent side="top">
-					Run in an isolated git worktree (your working copy stays untouched)
-				</TooltipContent>
+				<TooltipContent side="top">{t("newChat.worktreeHint")}</TooltipContent>
 			</Tooltip>
 		</div>
 	)
@@ -181,18 +181,9 @@ function MentionTrigger({
 }
 
 const SUGGESTIONS = [
-	{
-		icon: CodeIcon,
-		text: "Build a new feature based on the existing patterns in this repo.",
-	},
-	{
-		icon: FileTextIcon,
-		text: "Summarize the architecture and key design decisions.",
-	},
-	{
-		icon: GitPullRequestIcon,
-		text: "Review recent changes and suggest improvements.",
-	},
+	{ icon: CodeIcon, key: "newChat.suggestionFeature" as const },
+	{ icon: FileTextIcon, key: "newChat.suggestionArchitecture" as const },
+	{ icon: GitPullRequestIcon, key: "newChat.suggestionReview" as const },
 ]
 
 /**
@@ -220,12 +211,13 @@ export function NewChat() {
 	const projects = useProjectList()
 	const { createSession, sendPrompt } = useAgentActions()
 	const navigate = useNavigate()
+	const { t } = useI18n()
 
 	// Inject app name into the AppBar
 	const setAppBarContent = useSetAppBarContent()
 	useLayoutEffect(() => {
 		setAppBarContent(
-			<PalotWordmark className="h-[11px] w-auto shrink-0 text-muted-foreground/70" />,
+			<EigentWordmark className="text-[10px] shrink-0 text-muted-foreground/70" />,
 		)
 		return () => setAppBarContent(null)
 	}, [setAppBarContent])
@@ -699,12 +691,12 @@ export function NewChat() {
 				<div className="w-full max-w-4xl space-y-8">
 					{/* Wordmark */}
 					<div className="flex justify-center">
-						<PalotWordmark className="h-4 w-auto text-foreground" />
+						<EigentWordmark className="text-base text-foreground" />
 					</div>
 
-					{/* "Build what's next" + project name */}
+					{/* "{t("newChat.hero")}" + project name */}
 					<div className="text-center">
-						<h1 className="text-2xl font-semibold text-foreground">Build what's next</h1>
+						<h1 className="text-2xl font-semibold text-foreground">{t("newChat.hero")}</h1>
 						{projects.length > 1 ? (
 							<Popover open={projectPickerOpen} onOpenChange={setProjectPickerOpen}>
 								<PopoverTrigger
@@ -715,7 +707,7 @@ export function NewChat() {
 										/>
 									}
 								>
-									{selectedProject?.name ?? "select project"}
+									{selectedProject?.name ?? t("newChat.selectProject")}
 									<ChevronDownIcon className="size-4" />
 								</PopoverTrigger>
 								<PopoverContent className="w-64 p-1" align="center">
@@ -750,17 +742,18 @@ export function NewChat() {
 					<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
 						{SUGGESTIONS.map((suggestion) => {
 							const Icon = suggestion.icon
+							const suggestionText = t(suggestion.key)
 							return (
 								<button
-									key={suggestion.text}
+									key={suggestion.key}
 									type="button"
-									onClick={() => handleLaunch(suggestion.text)}
+									onClick={() => handleLaunch(suggestionText)}
 									disabled={launching || !selectedDirectory || !runtimeReady}
 									className="group/card flex flex-col gap-3 rounded-xl border border-border/50 bg-background/40 backdrop-blur-sm p-4 text-left transition-colors hover:border-muted-foreground/30 hover:bg-background/60 disabled:opacity-50"
 								>
 									<Icon className="size-5 text-muted-foreground transition-colors group-hover/card:text-foreground" />
 									<p className="text-sm leading-snug text-muted-foreground transition-colors group-hover/card:text-foreground">
-										{suggestion.text}
+										{suggestionText}
 									</p>
 								</button>
 							)
@@ -810,7 +803,7 @@ export function NewChat() {
 								supportsPdf={modelCapabilities?.pdf}
 							/>
 							<PromptInputTextarea
-								placeholder="What should this session work on?"
+								placeholder={t("newChat.placeholder")}
 								autoFocus
 								disabled={launching || !selectedDirectory || projects.length === 0 || !runtimeReady}
 								className="min-h-[80px]"

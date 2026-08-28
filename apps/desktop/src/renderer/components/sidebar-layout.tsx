@@ -18,9 +18,9 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { activeServerConfigAtom, serverConnectedAtom } from "../atoms/connection"
 import { useAgents, useProjectList, useSetCommandPaletteOpen } from "../hooks/use-agents"
 import { useAgentActions } from "../hooks/use-server"
-import type { Agent } from "../lib/types"
+import type { Agent, SidebarProject } from "../lib/types"
 import { pickDirectory } from "../services/backend"
-import { loadProjectSessions } from "../services/connection-manager"
+import { addProject, removeProject } from "../services/connection-manager"
 import { AddProjectDialog } from "./add-project-dialog"
 import { APP_BAR_HEIGHT, AppBar } from "./app-bar"
 import { AppSidebarContent } from "./sidebar"
@@ -186,25 +186,32 @@ export function SidebarLayout() {
 		setCommandPaletteOpen(true)
 	}, [setCommandPaletteOpen])
 
-	// Add project: local servers use native picker, remote servers use a dialog
+	// Electron can use the native folder picker. Browser mode always uses the
+	// path dialog, even when connected to the built-in local server.
 	const activeServer = useAtomValue(activeServerConfigAtom)
 	const [addProjectOpen, setAddProjectOpen] = useState(false)
 
 	const handleAddProject = useCallback(async () => {
-		if (activeServer.type === "local") {
-			// Local server: open native folder picker directly
+		if (isElectronEnv && activeServer.type === "local") {
 			const directory = await pickDirectory()
 			if (!directory) return
-			await loadProjectSessions(directory)
+			await addProject(directory)
 			navigate({ to: "/" })
-		} else {
-			// Remote server: show dialog with text input
-			setAddProjectOpen(true)
+			return
 		}
+		setAddProjectOpen(true)
 	}, [activeServer.type, navigate])
 
 	const handleProjectAdded = useCallback(
 		(_directory: string) => {
+			navigate({ to: "/" })
+		},
+		[navigate],
+	)
+
+	const handleRemoveProject = useCallback(
+		(project: SidebarProject) => {
+			removeProject(project.directory)
 			navigate({ to: "/" })
 		},
 		[navigate],
@@ -243,6 +250,7 @@ export function SidebarLayout() {
 						onRenameSession={handleRenameSession}
 						onDeleteSession={handleDeleteSession}
 						onForkSession={handleForkSession}
+						onRemoveProject={handleRemoveProject}
 						serverConnected={serverConnected}
 					/>
 					)}
