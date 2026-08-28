@@ -18,7 +18,7 @@
 
 - [x] Browser mode의 Electron-only Git API를 Hono backend로 이전
 - [x] Workspace / File / PTY / Process API
-- [x] CodexDriver + ChatGPT/device auth 골격 (실제 Codex CLI E2E 검증은 Issue로 추적)
+- [x] CodexDriver + ChatGPT/device auth + 실제 Codex CLI E2E/interrupt/resume 검증
 - [x] ClaudeDriver + subscription/API auth 골격 (실제 stream-json E2E blocker는 Issue로 추적)
 - [x] OpenAI/Anthropic compatible drivers
 - [x] Task/session/process persistence (SQLite + migration + event history)
@@ -31,7 +31,7 @@
 ## 현재 알려진 blocker
 
 - Claude Code 2.1.238 OAuth 로그인/상태 감지는 정상이나 실제 `/api/agents/.../messages` 호출이 현재 exit code 1로 종료됨.
-- CodexDriver는 Codex CLI 0.150.1 규격에 맞춰 구현했지만 현재 개발 머신에 Codex CLI가 전역 설치되어 있지 않아 실제 E2E 실행은 미검증.
+- Codex CLI 0.150.1은 Windows에서 `/api/agents` 실제 E2E(stream/resume/YOLO/interrupt)를 검증했고, Ubuntu 26.04 네이티브 환경에서도 설치/ChatGPT 인증/device-auth challenge를 검증함. Linux 추가 turn은 현재 계정 사용량 한도 때문에 `thread.started` 이후 provider가 거절했으며 설치·인증 경로 자체는 정상.
 - SQLite 기반 task/session/process 영속화와 stale 상태 복구, durable agent run, SSE cursor replay, Project Tools 재연결/backoff까지 구현됨.
 
 ## 현재 실행 방법
