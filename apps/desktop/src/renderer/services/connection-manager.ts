@@ -568,6 +568,7 @@ async function startEventLoop(
 	generation: number,
 ): Promise<void> {
 	let retryDelay = 1000
+	let reconnectWarningShown = false
 
 	const isStale = () => signal.aborted || generation !== eventLoopGeneration
 
@@ -589,6 +590,12 @@ async function startEventLoop(
 			setConnected(healthy)
 			if (!healthy) {
 				log.warn("Server health check failed, backing off", { generation, retryDelay })
+				if (retryDelay >= 15000 && !reconnectWarningShown) {
+					reconnectWarningShown = true
+					void import("./web-push").then(({ showReconnectFailureNotification }) =>
+						showReconnectFailureNotification(),
+					)
+				}
 				await new Promise((resolve) => setTimeout(resolve, retryDelay))
 				retryDelay = Math.min(retryDelay * 2, 30000)
 				continue
@@ -602,6 +609,7 @@ async function startEventLoop(
 			const stream = await subscribeToGlobalEvents(client)
 			if (isStale()) break
 			retryDelay = 1000
+			reconnectWarningShown = false
 			log.info("SSE stream connected", { generation })
 
 			// SSE stream opened successfully, server is reachable

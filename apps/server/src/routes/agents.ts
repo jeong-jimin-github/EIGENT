@@ -6,6 +6,7 @@ import { agentRuns } from "../services/agent-runs"
 import { cancelProviderAuth, getProviderAuth, startProviderAuth } from "../services/provider-auth"
 import { providerRegistry } from "../services/provider-registry"
 import { stateStore } from "../services/state"
+import { webPushService } from "../services/web-push"
 
 function errorMessage(err: unknown): string {
 	return err instanceof Error ? err.message : String(err)
@@ -44,6 +45,7 @@ const app = new Hono()
 			model?: string
 			yolo?: boolean
 			systemPrompt?: string
+			uiSessionId?: string
 		}
 		if (!body.provider || !body.workspace || !body.model) {
 			return c.json({ error: "provider, workspace and model are required" }, 400)
@@ -56,6 +58,7 @@ const app = new Hono()
 				yolo: body.yolo ?? true,
 				systemPrompt: body.systemPrompt,
 			})
+			webPushService.bindSession(session.id, body.uiSessionId)
 			return c.json(session, 201)
 		} catch (err) {
 			return c.json({ error: errorMessage(err) }, 400)

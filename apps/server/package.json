@@ -36,10 +36,12 @@
 		"@eigent/agent-antigravity": "workspace:*",
 		"@modelcontextprotocol/sdk": "^1.26.0",
 		"playwright-core": "^1.55.0",
-		"zod": "^4.3.6"
+		"zod": "^4.3.6",
+		"web-push": "^3.6.7"
 	},
 	"devDependencies": {
 		"@types/bun": "^1.2.14",
-		"typescript": "^5.8.3"
+		"typescript": "^5.8.3",
+		"@types/web-push": "^3.6.4"
 	}
 }

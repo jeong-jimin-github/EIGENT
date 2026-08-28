@@ -54,6 +54,7 @@ export type AgentEvent =
 	| { type: "file.changed"; path: string }
 	| { type: "terminal.output"; processId: string; data: string }
 	| { type: "question"; id: string; prompt: string }
+	| { type: "permission"; id: string; prompt: string }
 	| { type: "run.requested"; requestId: string; message: string }
 	| { type: "run.completed"; requestId: string }
 	| { type: "run.failed"; requestId: string; message: string }

@@ -305,6 +305,7 @@ export async function sendUnifiedAgentPrompt(args: {
 			workspace: args.workspace,
 			model: args.runtime.model,
 			yolo: true,
+			uiSessionId: args.uiSessionId,
 		})
 		agentSessionId = session.id
 		args.onAgentSession?.(agentSessionId)

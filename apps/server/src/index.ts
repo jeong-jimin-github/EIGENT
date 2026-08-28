@@ -10,6 +10,7 @@ import git from "./routes/git"
 import health from "./routes/health"
 import modelState from "./routes/model-state"
 import processes from "./routes/processes"
+import push from "./routes/push"
 import recovery from "./routes/recovery"
 import servers from "./routes/servers"
 import tasks from "./routes/tasks"
@@ -247,6 +248,7 @@ const routes = app
 	.route("/api/desktop", desktop)
 	.route("/api/git", git)
 	.route("/api/processes", processes)
+	.route("/api/push", push)
 	.route("/api/recovery", recovery)
 	.route("/api/workspace", workspace)
 	.route("/api/servers", servers)

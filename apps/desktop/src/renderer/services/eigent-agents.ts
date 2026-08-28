@@ -96,6 +96,7 @@ export async function createUnifiedAgentSession(args: {
 	taskId?: string
 	yolo?: boolean
 	systemPrompt?: string
+	uiSessionId?: string
 }): Promise<UnifiedAgentSession> {
 	return jsonRequest<UnifiedAgentSession>("/api/agents/sessions", {
 		method: "POST",

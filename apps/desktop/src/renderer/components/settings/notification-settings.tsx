@@ -10,10 +10,12 @@ import { useCallback } from "react"
 import { useSettings } from "../../hooks/use-settings"
 import { SettingsRow } from "./settings-row"
 import { SettingsSection } from "./settings-section"
+import { WebPushSettings } from "./web-push-settings"
 
 export function NotificationSettings() {
 	const { settings, updateSettings } = useSettings()
 	const notif = settings.notifications
+	const isElectron = typeof window !== "undefined" && "palot" in window
 
 	const updateNotif = useCallback(
 		(key: string, value: unknown) => {
@@ -21,6 +23,8 @@ export function NotificationSettings() {
 		},
 		[updateSettings],
 	)
+
+	if (!isElectron) return <WebPushSettings />
 
 	const isMac =
 		typeof window !== "undefined" && "palot" in window && window.palot.platform === "darwin"

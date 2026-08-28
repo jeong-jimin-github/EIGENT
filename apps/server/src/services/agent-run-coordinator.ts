@@ -35,6 +35,10 @@ export interface AgentRunStart {
 	state: AgentSession["state"]
 }
 
+export interface AgentRunNotifier {
+	notify(session: AgentSession, event: AgentEvent): void | Promise<void>
+}
+
 interface ActiveRun {
 	requestId: string
 	promise: Promise<void>
@@ -47,6 +51,7 @@ export class AgentRunCoordinator {
 	constructor(
 		private readonly backend: AgentRunBackend,
 		private readonly store: StateStore,
+		private readonly notifier?: AgentRunNotifier,
 	) {}
 
 	private findRunRequest(sessionId: string, requestId: string): PersistedAgentEvent | null {
@@ -66,6 +71,8 @@ export class AgentRunCoordinator {
 	private append(sessionId: string, event: AgentEvent): PersistedAgentEvent {
 		const persisted = this.store.appendAgentEvent(sessionId, event)
 		this.notify(sessionId)
+		const session = this.backend.getSession(sessionId)
+		if (session) void this.notifier?.notify(session, event)
 		return persisted
 	}
 
@@ -119,6 +126,8 @@ export class AgentRunCoordinator {
 			for await (const event of this.backend.events(sessionId, message)) {
 				// ProviderRegistry persists normalized provider events. Wake replay subscribers.
 				if (event.type === "error") providerError = event.message
+				const session = this.backend.getSession(sessionId)
+				if (session) void this.notifier?.notify(session, event)
 				this.notify(sessionId)
 			}
 			const state = this.backend.getSession(sessionId)?.state
