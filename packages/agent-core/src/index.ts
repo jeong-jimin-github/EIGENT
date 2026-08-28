@@ -31,6 +31,7 @@ export interface AgentSession {
 	provider: AgentProviderKind
 	model: string
 	workspace: string
+	taskId?: string
 	state: AgentSessionState
 	createdAt: number
 }
@@ -38,6 +39,7 @@ export interface AgentSession {
 export interface StartSessionOptions {
 	workspace: string
 	model: string
+	taskId?: string
 	yolo?: boolean
 	systemPrompt?: string
 }
@@ -52,8 +54,17 @@ export type AgentEvent =
 	| { type: "file.changed"; path: string }
 	| { type: "terminal.output"; processId: string; data: string }
 	| { type: "question"; id: string; prompt: string }
+	| { type: "run.requested"; requestId: string; message: string }
+	| { type: "run.completed"; requestId: string }
+	| { type: "run.failed"; requestId: string; message: string }
+	| { type: "run.interrupted"; requestId: string }
 	| { type: "state.changed"; state: AgentSessionState }
 	| { type: "error"; message: string; recoverable: boolean }
+
+export interface AgentSessionSnapshot {
+	session: AgentSession
+	driverState?: unknown
+}
 
 export interface AgentStatus {
 	available: boolean
@@ -69,6 +80,8 @@ export interface AgentDriver {
 	resume(sessionId: string): Promise<void>
 	getModels(): Promise<AgentModel[]>
 	getStatus(): Promise<AgentStatus>
+	snapshotSession(sessionId: string): AgentSessionSnapshot | null
+	restoreSession(snapshot: AgentSessionSnapshot): void
 }
 
 export const DEFAULT_YOLO_MODE = true

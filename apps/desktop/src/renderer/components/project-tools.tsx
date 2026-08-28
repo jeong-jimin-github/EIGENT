@@ -20,13 +20,13 @@ import {
 	TerminalIcon,
 	Trash2Icon,
 } from "lucide-react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useProjectList } from "../hooks/use-agents"
+import { fetchRecoverySnapshot, reconnectDelay, watchRecoverySnapshots } from "../services/eigent-recovery"
 import {
 	createWorkspaceDirectory,
 	deleteWorkspacePath,
 	killProcess,
-	listProcesses,
 	listWorkspace,
 	readWorkspaceFile,
 	startProcess,
@@ -243,7 +243,9 @@ function FilesPanel({ root }: { root: string }) {
 
 function TerminalPanel({ cwd }: { cwd: string }) {
 	const hostRef = useRef<HTMLDivElement>(null)
-	const [connected, setConnected] = useState(false)
+	const [connectionState, setConnectionState] = useState<"connecting" | "connected" | "reconnecting">(
+		"connecting",
+	)
 
 	useEffect(() => {
 		const host = hostRef.current
@@ -260,34 +262,79 @@ function TerminalPanel({ cwd }: { cwd: string }) {
 		terminal.open(host)
 		fitAddon.fit()
 
-		const socket = new WebSocket(terminalWebSocketUrl(cwd))
-		socket.addEventListener("open", () => {
-			setConnected(true)
-			fitAddon.fit()
-			socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }))
-			terminal.focus()
-		})
-		socket.addEventListener("message", (event) => terminal.write(String(event.data)))
-		socket.addEventListener("close", () => setConnected(false))
-		socket.addEventListener("error", () => terminal.write("\r\n[EIGENT terminal WebSocket error]\r\n"))
+		let socket: WebSocket | null = null
+		let stopped = false
+		let reconnectAttempt = 0
+		let reconnectTimer: number | null = null
+
+		const scheduleReconnect = () => {
+			if (stopped || reconnectTimer !== null) return
+			setConnectionState("reconnecting")
+			const delay = reconnectDelay(reconnectAttempt, { baseMs: 500, maxMs: 10_000 })
+			reconnectAttempt += 1
+			reconnectTimer = window.setTimeout(() => {
+				reconnectTimer = null
+				connect()
+			}, delay)
+		}
+
+		const connect = () => {
+			if (stopped || socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return
+			setConnectionState(reconnectAttempt > 0 ? "reconnecting" : "connecting")
+			const next = new WebSocket(terminalWebSocketUrl(cwd))
+			socket = next
+			next.addEventListener("open", () => {
+				if (socket !== next || stopped) return
+				reconnectAttempt = 0
+				setConnectionState("connected")
+				fitAddon.fit()
+				next.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }))
+				terminal.focus()
+			})
+			next.addEventListener("message", (event) => {
+				if (socket === next) terminal.write(String(event.data))
+			})
+			next.addEventListener("close", () => {
+				if (socket !== next) return
+				socket = null
+				scheduleReconnect()
+			})
+			next.addEventListener("error", () => next.close())
+		}
+
+		const reconnectNow = () => {
+			if (reconnectTimer !== null) {
+				window.clearTimeout(reconnectTimer)
+				reconnectTimer = null
+			}
+			socket?.close()
+			socket = null
+			connect()
+		}
+
+		connect()
+		window.addEventListener("online", reconnectNow)
 
 		const inputDisposable = terminal.onData((data) => {
-			if (socket.readyState === WebSocket.OPEN) {
+			if (socket?.readyState === WebSocket.OPEN) {
 				socket.send(JSON.stringify({ type: "input", data }))
 			}
 		})
 		const resizeObserver = new ResizeObserver(() => {
 			fitAddon.fit()
-			if (socket.readyState === WebSocket.OPEN) {
+			if (socket?.readyState === WebSocket.OPEN) {
 				socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }))
 			}
 		})
 		resizeObserver.observe(host)
 
 		return () => {
+			stopped = true
+			window.removeEventListener("online", reconnectNow)
+			if (reconnectTimer !== null) window.clearTimeout(reconnectTimer)
 			resizeObserver.disconnect()
 			inputDisposable.dispose()
-			socket.close()
+			socket?.close()
 			terminal.dispose()
 		}
 	}, [cwd])
@@ -297,7 +344,7 @@ function TerminalPanel({ cwd }: { cwd: string }) {
 			<div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/10 px-3 text-xs text-white/60">
 				<TerminalIcon aria-hidden="true" className="size-3.5" />
 				<span className="truncate">{cwd}</span>
-				<span className="ml-auto">{connected ? "connected" : "connecting…"}</span>
+				<span className="ml-auto">{connectionState}</span>
 			</div>
 			<div ref={hostRef} className="min-h-0 flex-1 p-2" />
 		</div>
@@ -312,23 +359,29 @@ function ProcessesPanel({ cwd }: { cwd: string }) {
 
 	const refresh = useCallback(async () => {
 		try {
-			setProcesses(await listProcesses())
+			const snapshot = await fetchRecoverySnapshot(cwd)
+			setProcesses(snapshot.processes)
 			setError(null)
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "Failed to load processes")
+			setError(err instanceof Error ? err.message : "Failed to recover process state")
 		}
-	}, [])
+	}, [cwd])
 
 	useEffect(() => {
-		void refresh()
-		const timer = window.setInterval(() => void refresh(), 1000)
-		return () => window.clearInterval(timer)
-	}, [refresh])
+		const controller = new AbortController()
+		void watchRecoverySnapshots(
+			cwd,
+			(snapshot) => {
+				setProcesses(snapshot.processes)
+				setError(null)
+			},
+			(err) => setError(err instanceof Error ? err.message : "Reconnecting to server…"),
+			controller.signal,
+		)
+		return () => controller.abort()
+	}, [cwd])
 
-	const projectProcesses = useMemo(
-		() => processes.filter((item) => item.cwd === cwd),
-		[cwd, processes],
-	)
+	const projectProcesses = processes
 
 	const run = useCallback(async () => {
 		const trimmed = command.trim()

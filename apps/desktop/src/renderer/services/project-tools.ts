@@ -19,8 +19,9 @@ export interface ManagedProcessInfo {
 	id: string
 	command: string
 	cwd: string
+	taskId?: string
 	pid: number | null
-	state: "running" | "exited" | "killed" | "failed"
+	state: "running" | "exited" | "killed" | "failed" | "orphaned"
 	exitCode: number | null
 	startedAt: number
 	endedAt: number | null

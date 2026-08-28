@@ -5,6 +5,7 @@ import type {
 	AgentEvent,
 	AgentModel,
 	AgentSession,
+	AgentSessionSnapshot,
 	AgentStatus,
 	StartSessionOptions,
 } from "@eigent/agent-core"
@@ -119,6 +120,7 @@ export class ClaudeDriver implements AgentDriver {
 			provider: this.kind,
 			model: options.model,
 			workspace: options.workspace,
+			taskId: options.taskId,
 			state: "starting",
 			createdAt: Date.now(),
 			yolo: options.yolo ?? true,
@@ -200,6 +202,30 @@ export class ClaudeDriver implements AgentDriver {
 		const session = this.sessions.get(sessionId)
 		if (!session) throw new Error(`Unknown Claude session: ${sessionId}`)
 		if (session.state === "interrupted" || session.state === "failed") session.state = "running"
+	}
+
+	snapshotSession(sessionId: string): AgentSessionSnapshot | null {
+		const session = this.sessions.get(sessionId)
+		if (!session) return null
+		const { yolo, systemPrompt, started, ...sessionInfo } = session
+		return {
+			session: { ...sessionInfo },
+			driverState: { yolo, systemPrompt, started },
+		}
+	}
+
+	restoreSession(snapshot: AgentSessionSnapshot): void {
+		const state = (snapshot.driverState ?? {}) as {
+			yolo?: boolean
+			systemPrompt?: string
+			started?: boolean
+		}
+		this.sessions.set(snapshot.session.id, {
+			...snapshot.session,
+			yolo: state.yolo ?? true,
+			systemPrompt: state.systemPrompt,
+			started: state.started ?? true,
+		})
 	}
 
 	async getModels(): Promise<AgentModel[]> {

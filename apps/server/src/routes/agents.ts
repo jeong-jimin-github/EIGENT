@@ -1,8 +1,11 @@
 import type { AgentProviderKind } from "@eigent/agent-core"
 import { Hono } from "hono"
 import { streamSSE } from "hono/streaming"
+import { type AgentRunStart, isRunTerminalEvent } from "../services/agent-run-coordinator"
+import { agentRuns } from "../services/agent-runs"
 import { cancelProviderAuth, getProviderAuth, startProviderAuth } from "../services/provider-auth"
 import { providerRegistry } from "../services/provider-registry"
+import { stateStore } from "../services/state"
 
 function errorMessage(err: unknown): string {
 	return err instanceof Error ? err.message : String(err)
@@ -30,10 +33,14 @@ const app = new Hono()
 			? c.json({ cancelled: true }, 200)
 			: c.json({ error: "auth task is not running" }, 409),
 	)
+	.get("/sessions", (c) =>
+		c.json({ sessions: providerRegistry.listSessions(c.req.query("workspace")) }, 200),
+	)
 	.post("/sessions", async (c) => {
 		const body = (await c.req.json()) as {
 			provider?: AgentProviderKind
 			workspace?: string
+			taskId?: string
 			model?: string
 			yolo?: boolean
 			systemPrompt?: string
@@ -44,6 +51,7 @@ const app = new Hono()
 		try {
 			const session = await providerRegistry.start(body.provider, {
 				workspace: body.workspace,
+				taskId: body.taskId,
 				model: body.model,
 				yolo: body.yolo ?? true,
 				systemPrompt: body.systemPrompt,
@@ -57,23 +65,108 @@ const app = new Hono()
 		const session = providerRegistry.getSession(c.req.param("id"))
 		return session ? c.json(session, 200) : c.json({ error: "session not found" }, 404)
 	})
+	.get("/sessions/:id/events", (c) => {
+		const id = c.req.param("id")
+		if (!providerRegistry.getSession(id)) return c.json({ error: "session not found" }, 404)
+		const after = Number(c.req.query("after") ?? "0")
+		if (!Number.isInteger(after) || after < 0) {
+			return c.json({ error: "after must be a non-negative integer" }, 400)
+		}
+		return c.json({ events: providerRegistry.getEvents(id, after) }, 200)
+	})
+	.get("/sessions/:id/recovery", (c) => {
+		const id = c.req.param("id")
+		const session = providerRegistry.getSession(id)
+		if (!session) return c.json({ error: "session not found" }, 404)
+		return c.json(
+			{
+				session,
+				lastSequence: stateStore.getLastAgentEventSequence(id),
+				activeRequestId: agentRuns.getActiveRequestId(id),
+				running: agentRuns.isRunning(id),
+			},
+			200,
+		)
+	})
+	.get("/sessions/:id/stream", (c) => {
+		const id = c.req.param("id")
+		if (!providerRegistry.getSession(id)) return c.json({ error: "session not found" }, 404)
+		const requestedAfter = Number(c.req.query("after") ?? c.req.header("last-event-id") ?? "0")
+		if (!Number.isInteger(requestedAfter) || requestedAfter < 0) {
+			return c.json({ error: "after must be a non-negative integer" }, 400)
+		}
+		return streamSSE(c, async (stream) => {
+			let cursor = requestedAfter
+			while (!c.req.raw.signal.aborted) {
+				const events = providerRegistry.getEvents(id, cursor)
+				for (const item of events) {
+					cursor = item.sequence
+					await stream.writeSSE({
+						id: String(item.sequence),
+						event: "agent",
+						data: JSON.stringify(item.event),
+					})
+				}
+				if (events.length === 0) {
+					await agentRuns.waitForChange(id, c.req.raw.signal, 5_000)
+					if (!c.req.raw.signal.aborted && providerRegistry.getEvents(id, cursor).length === 0) {
+						await stream.writeSSE({ event: "heartbeat", data: JSON.stringify({ cursor }) })
+					}
+				}
+			}
+		})
+	})
 	.post("/sessions/:id/messages", async (c) => {
-		const body = (await c.req.json()) as { message?: string }
+		const body = (await c.req.json()) as { message?: string; requestId?: string }
 		if (!body.message?.trim()) return c.json({ error: "message is required" }, 400)
 		const id = c.req.param("id")
 		if (!providerRegistry.getSession(id)) return c.json({ error: "session not found" }, 404)
 
+		let run: AgentRunStart
+		try {
+			run = agentRuns.start(id, body.message.trim(), body.requestId)
+		} catch (err) {
+			return c.json({ error: errorMessage(err) }, 409)
+		}
+
 		return streamSSE(c, async (stream) => {
-			try {
-				for await (const event of providerRegistry.events(id, body.message!)) {
-					await stream.writeSSE({ event: "agent", data: JSON.stringify(event) })
+			let cursor = Math.max(0, run.startSequence - 1)
+			while (!c.req.raw.signal.aborted) {
+				const events = providerRegistry.getEvents(id, cursor)
+				for (const item of events) {
+					cursor = item.sequence
+					await stream.writeSSE({
+						id: String(item.sequence),
+						event: "agent",
+						data: JSON.stringify(item.event),
+					})
+					if (isRunTerminalEvent(item.event) && item.event.requestId === run.requestId) {
+						await stream.writeSSE({
+							event: "done",
+							data: JSON.stringify({ requestId: run.requestId, cursor }),
+						})
+						return
+					}
 				}
-				await stream.writeSSE({ event: "done", data: "{}" })
-			} catch (err) {
-				await stream.writeSSE({
-					event: "agent",
-					data: JSON.stringify({ type: "error", message: errorMessage(err), recoverable: true }),
-				})
+
+				const session = providerRegistry.getSession(id)
+				if (
+					!agentRuns.isRunning(id) &&
+					session &&
+					!["starting", "running", "waiting_input"].includes(session.state)
+				) {
+					await stream.writeSSE({
+						event: "done",
+						data: JSON.stringify({
+							requestId: run.requestId,
+							cursor,
+							state: session.state,
+							recovered: true,
+						}),
+					})
+					return
+				}
+				await agentRuns.waitForChange(id, c.req.raw.signal, 5_000)
 			}
 		})
 	})
