@@ -10,3 +10,16 @@ interface ImportMetaEnv {
 interface ImportMeta {
 	readonly env: ImportMetaEnv
 }
+
+declare module "@novnc/novnc" {
+	export default class RFB extends EventTarget {
+		constructor(target: HTMLElement, url: string, options?: { credentials?: Record<string, string> })
+		viewOnly: boolean
+		scaleViewport: boolean
+		resizeSession: boolean
+		clipViewport: boolean
+		background: string
+		disconnect(): void
+		clipboardPasteFrom(text: string): void
+	}
+}

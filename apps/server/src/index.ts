@@ -1,9 +1,11 @@
+import net from "node:net"
 import path from "node:path"
 import { Hono } from "hono"
 import { createBunWebSocket } from "hono/bun"
 import { cors } from "hono/cors"
 import agents from "./routes/agents"
 import browser from "./routes/browser"
+import desktop from "./routes/desktop"
 import git from "./routes/git"
 import health from "./routes/health"
 import modelState from "./routes/model-state"
@@ -13,6 +15,7 @@ import servers from "./routes/servers"
 import tasks from "./routes/tasks"
 import workspace from "./routes/workspace"
 import { browserRuntime } from "./services/browser-runtime"
+import { desktopRuntime } from "./services/desktop-runtime"
 import { ensureSingleServer } from "./services/server-manager"
 import { createTerminalSession, type TerminalSession } from "./services/terminal-session"
 
@@ -175,6 +178,53 @@ app.get(
 	}),
 )
 
+app.get(
+	"/api/desktop/vnc/ws",
+	upgradeWebSocket(() => {
+		let vnc: net.Socket | null = null
+		let stopped = false
+		const pending: Uint8Array[] = []
+
+		const toBytes = (data: string | ArrayBuffer | Uint8Array): Uint8Array => {
+			if (typeof data === "string") return Buffer.from(data)
+			if (data instanceof ArrayBuffer) return new Uint8Array(data)
+			return data
+		}
+
+		return {
+			onOpen(_event, ws) {
+				void desktopRuntime
+					.ensureReady()
+					.then(() => {
+						if (stopped) return
+						const config = desktopRuntime.getConfig()
+						vnc = net.createConnection({ host: config.vncHost, port: config.vncPort })
+						vnc.on("connect", () => {
+							for (const payload of pending.splice(0)) vnc?.write(payload)
+						})
+						vnc.on("data", (data) => {
+							if (!stopped) ws.send(data)
+						})
+						vnc.on("error", () => ws.close())
+						vnc.on("close", () => ws.close())
+					})
+					.catch(() => ws.close())
+			},
+			onMessage(event) {
+				const payload = toBytes(event.data as string | ArrayBuffer | Uint8Array)
+				if (vnc?.readyState === "open") vnc.write(payload)
+				else pending.push(payload)
+			},
+			onClose() {
+				stopped = true
+				pending.length = 0
+				vnc?.destroy()
+				vnc = null
+			},
+		}
+	}),
+)
+
 app.use(
 	"/api/*",
 	cors({
@@ -194,6 +244,7 @@ app.use(
 const routes = app
 	.route("/api/agents", agents)
 	.route("/api/browser", browser)
+	.route("/api/desktop", desktop)
 	.route("/api/git", git)
 	.route("/api/processes", processes)
 	.route("/api/recovery", recovery)
@@ -238,18 +289,30 @@ const hostname = process.env.HOST || "0.0.0.0"
 
 console.log(`EIGENT server starting on http://${hostname}:${port}`)
 
-browserRuntime
-	.ensureReady()
-	.then(async () => {
+void (async () => {
+	if (desktopRuntime.getConfig().enabled) {
+		try {
+			await desktopRuntime.ensureReady()
+			const desktop = await desktopRuntime.status()
+			console.log(
+				`Shared desktop ready at ${desktop.display} (VNC ${desktop.vncHost}:${desktop.vncPort})`,
+			)
+		} catch (err) {
+			console.warn("Shared desktop unavailable on boot:", err instanceof Error ? err.message : err)
+		}
+	}
+
+	try {
+		await browserRuntime.ensureReady()
 		const status = await browserRuntime.status()
 		console.log(`Persistent browser ready at ${status.cdpUrl} (${status.profileDir})`)
-	})
-	.catch((err) => {
+	} catch (err) {
 		console.warn(
 			"Persistent browser unavailable on boot:",
 			err instanceof Error ? err.message : err,
 		)
-	})
+	}
+})()
 
 ensureSingleServer()
 	.then((server) => {

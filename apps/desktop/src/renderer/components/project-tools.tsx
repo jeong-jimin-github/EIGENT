@@ -37,6 +37,7 @@ import {
 } from "../services/project-tools"
 import { useSetAppBarContent } from "./app-bar-context"
 import { BrowserLiveView } from "./browser-live-view"
+import { DesktopControlView } from "./desktop-control-view"
 
 export function ProjectTools() {
 	const { projectSlug } = useParams({ strict: false }) as { projectSlug?: string }
@@ -66,6 +67,7 @@ export function ProjectTools() {
 					<TabsTrigger value="terminal">Terminal</TabsTrigger>
 					<TabsTrigger value="processes">Processes</TabsTrigger>
 					<TabsTrigger value="browser">Browser</TabsTrigger>
+					<TabsTrigger value="desktop">Desktop</TabsTrigger>
 				</TabsList>
 			</div>
 			<TabsContent value="files" className="min-h-0 overflow-hidden">
@@ -79,6 +81,9 @@ export function ProjectTools() {
 			</TabsContent>
 			<TabsContent value="browser" className="min-h-0 overflow-hidden">
 				<BrowserLiveView />
+			</TabsContent>
+			<TabsContent value="desktop" className="min-h-0 overflow-hidden">
+				<DesktopControlView />
 			</TabsContent>
 		</Tabs>
 	)

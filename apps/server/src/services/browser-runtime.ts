@@ -90,8 +90,12 @@ function envNumber(name: string, fallback: number): number {
 export function loadBrowserRuntimeConfig(): BrowserRuntimeConfig {
 	const dataDir = defaultDataDir()
 	const debugPort = envNumber("EIGENT_BROWSER_DEBUG_PORT", 9223)
+	const desktopEnabled = envBool("EIGENT_DESKTOP_ENABLED", process.platform === "linux")
 	const defaultHeadless =
-		process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY
+		process.platform === "linux" &&
+		!process.env.DISPLAY &&
+		!process.env.WAYLAND_DISPLAY &&
+		!desktopEnabled
 	return {
 		executablePath: process.env.EIGENT_BROWSER_EXECUTABLE?.trim() || undefined,
 		profileDir: path.resolve(
@@ -217,6 +221,18 @@ export class BrowserRuntime {
 		)
 			args.push("--no-sandbox")
 		const child = spawn(executablePath, args, {
+			env: this.config.headless
+				? process.env
+				: {
+						...process.env,
+						DISPLAY:
+							process.env.EIGENT_BROWSER_DISPLAY ??
+							process.env.EIGENT_DESKTOP_DISPLAY ??
+							process.env.DISPLAY ??
+							":99",
+						WAYLAND_DISPLAY: undefined,
+						XDG_SESSION_TYPE: "x11",
+					},
 			detached: true,
 			stdio: "ignore",
 			windowsHide: true,
