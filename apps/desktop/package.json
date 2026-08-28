@@ -40,6 +40,7 @@
 		"@fontsource-variable/inter": "^5.2.8",
 		"@fontsource/ibm-plex-mono": "^5.2.7",
 		"@libsql/client": "^0.17.0",
+		"@novnc/novnc": "^1.7.0",
 		"@opencode-ai/sdk": "^1.2.1",
 		"@palot/configconv": "workspace:*",
 		"@palot/ui": "workspace:*",

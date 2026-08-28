@@ -20,7 +20,8 @@
 		"build:types": "tsc",
 		"check-types": "tsgo --noEmit",
 		"start": "bun run dist/index.js",
-		"browser:mcp": "bun run src/browser-mcp.ts"
+		"browser:mcp": "bun run src/browser-mcp.ts",
+		"computer:mcp": "bun run src/computer-mcp.ts"
 	},
 	"dependencies": {
 		"@opencode-ai/sdk": "^1.2.1",

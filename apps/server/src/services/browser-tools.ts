@@ -5,6 +5,7 @@ export type BrowserAction =
 	| { action: "new_tab"; url?: string }
 	| { action: "close_tab"; pageId: string }
 	| { action: "navigate"; pageId?: string; url: string }
+	| { action: "reload"; pageId?: string }
 	| {
 			action: "inspect"
 			pageId?: string

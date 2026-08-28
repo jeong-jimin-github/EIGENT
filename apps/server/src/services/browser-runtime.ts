@@ -18,6 +18,46 @@ export interface BrowserTabInfo {
 	id: string
 	url: string
 	title: string
+	loading?: boolean
+}
+export interface BrowserDialogInfo {
+	type: string
+	message: string
+	defaultValue?: string
+}
+export interface BrowserActivityInfo {
+	sequence: number
+	kind: string
+	phase: string
+	pageId: string | null
+	at: number
+	action?: string
+	url?: string
+	filename?: string
+	error?: string
+}
+export interface BrowserTransferInfo {
+	kind: "upload" | "download"
+	state: string
+	pageId?: string
+	at: number
+	filename?: string
+	path?: string
+	files?: string[]
+}
+export interface BrowserLiveSnapshot {
+	capturedAt: number
+	pageId: string
+	url: string
+	title: string
+	loading: boolean
+	viewport: { width: number; height: number; deviceScaleFactor: number } | null
+	mimeType: "image/jpeg"
+	imageBase64?: string
+	tabs: BrowserTabInfo[]
+	activity?: BrowserActivityInfo | null
+	dialog?: BrowserDialogInfo | null
+	transfer?: BrowserTransferInfo | null
 }
 export interface BrowserRuntimeStatus extends BrowserRuntimeConfig {
 	state: BrowserRuntimeState
@@ -50,8 +90,12 @@ function envNumber(name: string, fallback: number): number {
 export function loadBrowserRuntimeConfig(): BrowserRuntimeConfig {
 	const dataDir = defaultDataDir()
 	const debugPort = envNumber("EIGENT_BROWSER_DEBUG_PORT", 9223)
+	const desktopEnabled = envBool("EIGENT_DESKTOP_ENABLED", process.platform === "linux")
 	const defaultHeadless =
-		process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY
+		process.platform === "linux" &&
+		!process.env.DISPLAY &&
+		!process.env.WAYLAND_DISPLAY &&
+		!desktopEnabled
 	return {
 		executablePath: process.env.EIGENT_BROWSER_EXECUTABLE?.trim() || undefined,
 		profileDir: path.resolve(
@@ -177,6 +221,18 @@ export class BrowserRuntime {
 		)
 			args.push("--no-sandbox")
 		const child = spawn(executablePath, args, {
+			env: this.config.headless
+				? process.env
+				: {
+						...process.env,
+						DISPLAY:
+							process.env.EIGENT_BROWSER_DISPLAY ??
+							process.env.EIGENT_DESKTOP_DISPLAY ??
+							process.env.DISPLAY ??
+							":99",
+						WAYLAND_DISPLAY: undefined,
+						XDG_SESSION_TYPE: "x11",
+					},
 			detached: true,
 			stdio: "ignore",
 			windowsHide: true,
@@ -272,6 +328,23 @@ export class BrowserRuntime {
 		if (!response.ok || body.error)
 			throw new Error(body.error ?? `Browser worker returned HTTP ${response.status}`)
 		return body.result
+	}
+
+	async liveSnapshot(
+		options: { pageId?: string; quality?: number } = {},
+	): Promise<BrowserLiveSnapshot> {
+		await this.ensureReady()
+		const response = await fetch(`${this.workerUrl()}/live`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(options),
+			signal: AbortSignal.timeout(10_000),
+		})
+		const body = (await response.json()) as { snapshot?: BrowserLiveSnapshot; error?: string }
+		if (!response.ok || !body.snapshot) {
+			throw new Error(body.error ?? `Browser worker returned HTTP ${response.status}`)
+		}
+		return body.snapshot
 	}
 
 	async status(): Promise<BrowserRuntimeStatus> {
