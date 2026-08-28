@@ -37,6 +37,7 @@ import {
 	SettingsIcon,
 	TimerIcon,
 	TrashIcon,
+	WrenchIcon,
 	XIcon,
 } from "lucide-react"
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
@@ -526,6 +527,23 @@ const ProjectFolder = memo(function ProjectFolder({
 					className="flex h-[var(--collapsible-panel-height)] flex-col overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0 [&[hidden]:not([hidden='until-found'])]:hidden"
 				>
 					<div className="ml-3 border-l border-sidebar-border/5 pl-1">
+						<SidebarMenu>
+							<SidebarMenuItem>
+								<SidebarMenuButton
+									size="sm"
+									tooltip="Project tools"
+									onClick={() =>
+										navigate({
+											to: "/project/$projectSlug/tools",
+											params: { projectSlug: project.slug },
+										})
+									}
+								>
+									<WrenchIcon className="size-3.5" />
+									<span>Project tools</span>
+								</SidebarMenuButton>
+							</SidebarMenuItem>
+						</SidebarMenu>
 						{isLoading && projectSessions.length === 0 ? (
 							<p className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-muted-foreground/60">
 								<Loader2Icon className="size-3 animate-spin" />

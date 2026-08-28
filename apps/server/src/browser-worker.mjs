@@ -13,10 +13,26 @@ mkdirSync(uploadDir, { recursive: true })
 let browser
 let context
 let nextPageId = 1
+let activitySequence = 0
+let lastActivity = null
+let transferState = null
 const pageIds = new WeakMap()
 const pagesById = new Map()
 const dialogs = new Map()
 const pageLocks = new Map()
+const pageMetadata = new Map()
+
+function recordActivity(kind, phase, pageId, detail = {}) {
+	lastActivity = {
+		sequence: ++activitySequence,
+		kind,
+		phase,
+		pageId: pageId ?? null,
+		at: Date.now(),
+		...detail,
+	}
+	return lastActivity
+}
 
 function preparePage(page) {
 	let id = pageIds.get(page)
@@ -24,10 +40,12 @@ function preparePage(page) {
 	id = `tab-${nextPageId++}`
 	pageIds.set(page, id)
 	pagesById.set(id, page)
+	pageMetadata.set(id, { url: page.url(), title: "", loading: false })
 	page.on("close", () => {
 		pagesById.delete(id)
 		dialogs.delete(id)
 		pageLocks.delete(id)
+		pageMetadata.delete(id)
 	})
 	page.on("dialog", (dialog) => {
 		dialogs.set(id, {
@@ -54,11 +72,12 @@ async function ensureConnected() {
 
 async function listTabs() {
 	await ensureConnected()
-	return Promise.all(context.pages().map(async (page) => ({
-		id: preparePage(page),
-		url: page.url(),
-		title: await page.title().catch(() => ""),
-	})))
+	return Promise.all(
+		context.pages().map(async (page) => {
+			const { pageId, ...metadata } = await summary(page)
+			return { id: pageId, ...metadata }
+		}),
+	)
 }
 
 async function getPage(pageId) {
@@ -96,7 +115,21 @@ function clipped(value, maxChars = 30_000) {
 	return value.length > limit ? `${value.slice(0, limit)}\n…[truncated ${value.length - limit} chars]` : value
 }
 async function summary(page) {
-	return { url: page.url(), title: await page.title().catch(() => "") }
+	const pageId = preparePage(page)
+	const cached = pageMetadata.get(pageId) ?? { url: page.url(), title: "", loading: false }
+	cached.url = page.url()
+	if (dialogs.has(pageId)) {
+		cached.loading = false
+		pageMetadata.set(pageId, cached)
+		return { pageId, ...cached }
+	}
+	const [title, loading] = await Promise.all([
+		page.title().catch(() => cached.title),
+		page.evaluate(() => document.readyState !== "complete").catch(() => cached.loading),
+	])
+	const metadata = { url: page.url(), title, loading }
+	pageMetadata.set(pageId, metadata)
+	return { pageId, ...metadata }
 }
 
 async function runWithDialogSignal(page, action) {
@@ -133,7 +166,7 @@ function downloadPath(filename) {
 	return path.join(downloadDir, path.basename(filename))
 }
 
-async function execute(input) {
+async function executeCore(input) {
 	switch (input.action) {
 		case "tabs": return { tabs: await listTabs() }
 		case "new_tab": {
@@ -149,6 +182,10 @@ async function execute(input) {
 		}
 		case "navigate": return withPageLock(input.pageId, async (page) => runWithDialogSignal(page, async () => {
 			await page.goto(input.url, { waitUntil: "domcontentloaded", timeout: 30_000 })
+			return summary(page)
+		}))
+		case "reload": return withPageLock(input.pageId, async (page) => runWithDialogSignal(page, async () => {
+			await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 })
 			return summary(page)
 		}))
 		case "inspect": return withPageLock(input.pageId, async (page) => {
@@ -220,6 +257,115 @@ async function execute(input) {
 	}
 }
 
+async function execute(input) {
+	let pageId = input.pageId
+	if (!pageId && !["tabs", "new_tab"].includes(input.action)) {
+		try {
+			pageId = preparePage(await getPage())
+			input = { ...input, pageId }
+		} catch {
+			/* preserve the original action error */
+		}
+	}
+
+	if (input.action !== "tabs") {
+		recordActivity("action", "started", pageId, { action: input.action })
+	}
+	if (input.action === "upload") {
+		transferState = { kind: "upload", state: "started", pageId, at: Date.now(), files: input.files }
+	}
+	if (input.action === "download") {
+		transferState = { kind: "download", state: "started", pageId, at: Date.now() }
+	}
+
+	try {
+		const result = await executeCore(input)
+		const resultPageId = result?.pageId ?? result?.id ?? pageId
+		if (result?.dialogPending) {
+			recordActivity("dialog", "pending", resultPageId, result.dialogPending)
+		} else if (input.action !== "tabs") {
+			recordActivity("action", "completed", resultPageId, { action: input.action })
+		}
+		if (input.action === "upload") {
+			transferState = { kind: "upload", state: "completed", pageId: resultPageId, at: Date.now(), files: input.files }
+		}
+		if (input.action === "download") {
+			transferState = {
+				kind: "download",
+				state: "completed",
+				pageId: resultPageId,
+				at: Date.now(),
+				filename: result?.suggestedFilename,
+				path: result?.path,
+			}
+		}
+		return result
+	} catch (error) {
+		if (input.action === "upload" || input.action === "download") {
+			transferState = { ...transferState, state: "failed", at: Date.now() }
+		}
+		if (input.action !== "tabs") {
+			recordActivity("action", "failed", pageId, {
+				action: input.action,
+				error: error instanceof Error ? error.message : String(error),
+			})
+		}
+		throw error
+	}
+}
+
+async function liveSnapshot(input = {}) {
+	let page
+	if (input.pageId) {
+		page = await getPage(input.pageId)
+	} else if (lastActivity?.pageId && pagesById.has(lastActivity.pageId)) {
+		page = await getPage(lastActivity.pageId)
+	} else {
+		page = await getPage()
+	}
+
+	const pageId = preparePage(page)
+	const quality = Math.max(25, Math.min(Number(input.quality) || 40, 75))
+	const pending = dialogs.get(pageId)
+	const metadata = await summary(page)
+	let imageBase64
+	if (!pending) {
+		try {
+			const image = await page.screenshot({
+				type: "jpeg",
+				quality,
+				fullPage: false,
+				animations: "disabled",
+				caret: "hide",
+				timeout: 5_000,
+			})
+			imageBase64 = image.toString("base64")
+		} catch {
+			/* navigation can briefly make frame capture unavailable */
+		}
+	}
+
+	const viewport = pending
+		? null
+		: await page
+			.evaluate(() => ({ width: innerWidth, height: innerHeight, deviceScaleFactor: devicePixelRatio }))
+			.catch(() => null)
+
+	return {
+		capturedAt: Date.now(),
+		...metadata,
+		viewport,
+		mimeType: "image/jpeg",
+		imageBase64,
+		tabs: await listTabs(),
+		activity: lastActivity,
+		dialog: pending
+			? { type: pending.type, message: pending.message, defaultValue: pending.defaultValue }
+			: null,
+		transfer: transferState,
+	}
+}
+
 async function readJson(request) {
 	let raw = ""
 	for await (const chunk of request) {
@@ -246,11 +392,17 @@ const server = http.createServer(async (request, response) => {
 				pid: process.pid,
 				connected: Boolean(browser?.isConnected()),
 				tabs: await listTabs(),
+				activity: lastActivity,
+				transfer: transferState,
 			})
 		}
 		if (request.method === "POST" && request.url === "/action") {
 			const input = await readJson(request)
 			return send(response, 200, { result: await execute(input) })
+		}
+		if (request.method === "POST" && request.url === "/live") {
+			const input = await readJson(request)
+			return send(response, 200, { snapshot: await liveSnapshot(input) })
 		}
 		return send(response, 404, { error: "Not found" })
 	} catch (error) {

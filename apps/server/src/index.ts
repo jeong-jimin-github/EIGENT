@@ -70,6 +70,111 @@ app.get(
 	}),
 )
 
+function clampLiveNumber(value: number, fallback: number, min: number, max: number): number {
+	return Number.isFinite(value) ? Math.max(min, Math.min(value, max)) : fallback
+}
+
+app.get(
+	"/api/browser/live/ws",
+	upgradeWebSocket((c) => {
+		let selectedPageId = c.req.query("pageId") || undefined
+		let fps = clampLiveNumber(
+			Number(c.req.query("fps") ?? process.env.EIGENT_BROWSER_LIVE_FPS ?? 2),
+			2,
+			0.5,
+			4,
+		)
+		let quality = clampLiveNumber(
+			Number(c.req.query("quality") ?? process.env.EIGENT_BROWSER_LIVE_QUALITY ?? 40),
+			40,
+			25,
+			75,
+		)
+		let socket: { send(data: string): void } | null = null
+		let timer: ReturnType<typeof setTimeout> | null = null
+		let stopped = false
+		let lastImage: string | undefined
+		let lastFullImageAt = 0
+
+		function schedule() {
+			if (stopped || timer) return
+			timer = setTimeout(
+				() => {
+					timer = null
+					void push()
+				},
+				Math.round(1000 / fps),
+			)
+		}
+
+		async function push() {
+			if (stopped || !socket) return
+			try {
+				const snapshot = await browserRuntime.liveSnapshot({ pageId: selectedPageId, quality })
+				const now = Date.now()
+				const nextImage = snapshot.imageBase64
+				const sendImage = Boolean(
+					nextImage && (nextImage !== lastImage || now - lastFullImageAt >= 5_000),
+				)
+				if (sendImage) {
+					lastImage = nextImage
+					lastFullImageAt = now
+				}
+				if (stopped || !socket) return
+				socket.send(
+					JSON.stringify({
+						type: "snapshot",
+						snapshot: sendImage ? snapshot : { ...snapshot, imageBase64: undefined },
+					}),
+				)
+			} catch (error) {
+				if (stopped || !socket) return
+				socket.send(
+					JSON.stringify({
+						type: "error",
+						error: error instanceof Error ? error.message : String(error),
+					}),
+				)
+			} finally {
+				schedule()
+			}
+		}
+
+		return {
+			onOpen(_event, ws) {
+				socket = ws
+				void push()
+			},
+			onMessage(event) {
+				try {
+					const raw = typeof event.data === "string" ? event.data : event.data.toString()
+					const message = JSON.parse(raw) as {
+						type?: string
+						pageId?: string
+						fps?: number
+						quality?: number
+					}
+					if (message.type === "select") selectedPageId = message.pageId || undefined
+					if (message.type === "follow") selectedPageId = undefined
+					if (message.type === "refresh") lastImage = undefined
+					if (message.type === "settings") {
+						fps = clampLiveNumber(Number(message.fps), fps, 0.5, 4)
+						quality = clampLiveNumber(Number(message.quality), quality, 25, 75)
+					}
+				} catch {
+					/* Ignore malformed viewer control messages. */
+				}
+			},
+			onClose() {
+				stopped = true
+				if (timer) clearTimeout(timer)
+				timer = null
+				socket = null
+			},
+		}
+	}),
+)
+
 app.use(
 	"/api/*",
 	cors({

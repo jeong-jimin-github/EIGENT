@@ -18,6 +18,46 @@ export interface BrowserTabInfo {
 	id: string
 	url: string
 	title: string
+	loading?: boolean
+}
+export interface BrowserDialogInfo {
+	type: string
+	message: string
+	defaultValue?: string
+}
+export interface BrowserActivityInfo {
+	sequence: number
+	kind: string
+	phase: string
+	pageId: string | null
+	at: number
+	action?: string
+	url?: string
+	filename?: string
+	error?: string
+}
+export interface BrowserTransferInfo {
+	kind: "upload" | "download"
+	state: string
+	pageId?: string
+	at: number
+	filename?: string
+	path?: string
+	files?: string[]
+}
+export interface BrowserLiveSnapshot {
+	capturedAt: number
+	pageId: string
+	url: string
+	title: string
+	loading: boolean
+	viewport: { width: number; height: number; deviceScaleFactor: number } | null
+	mimeType: "image/jpeg"
+	imageBase64?: string
+	tabs: BrowserTabInfo[]
+	activity?: BrowserActivityInfo | null
+	dialog?: BrowserDialogInfo | null
+	transfer?: BrowserTransferInfo | null
 }
 export interface BrowserRuntimeStatus extends BrowserRuntimeConfig {
 	state: BrowserRuntimeState
@@ -272,6 +312,23 @@ export class BrowserRuntime {
 		if (!response.ok || body.error)
 			throw new Error(body.error ?? `Browser worker returned HTTP ${response.status}`)
 		return body.result
+	}
+
+	async liveSnapshot(
+		options: { pageId?: string; quality?: number } = {},
+	): Promise<BrowserLiveSnapshot> {
+		await this.ensureReady()
+		const response = await fetch(`${this.workerUrl()}/live`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(options),
+			signal: AbortSignal.timeout(10_000),
+		})
+		const body = (await response.json()) as { snapshot?: BrowserLiveSnapshot; error?: string }
+		if (!response.ok || !body.snapshot) {
+			throw new Error(body.error ?? `Browser worker returned HTTP ${response.status}`)
+		}
+		return body.snapshot
 	}
 
 	async status(): Promise<BrowserRuntimeStatus> {

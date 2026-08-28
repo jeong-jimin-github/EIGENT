@@ -36,6 +36,7 @@ import {
 	type WorkspaceEntry,
 } from "../services/project-tools"
 import { useSetAppBarContent } from "./app-bar-context"
+import { BrowserLiveView } from "./browser-live-view"
 
 export function ProjectTools() {
 	const { projectSlug } = useParams({ strict: false }) as { projectSlug?: string }
@@ -64,6 +65,7 @@ export function ProjectTools() {
 					<TabsTrigger value="files">Files</TabsTrigger>
 					<TabsTrigger value="terminal">Terminal</TabsTrigger>
 					<TabsTrigger value="processes">Processes</TabsTrigger>
+					<TabsTrigger value="browser">Browser</TabsTrigger>
 				</TabsList>
 			</div>
 			<TabsContent value="files" className="min-h-0 overflow-hidden">
@@ -74,6 +76,9 @@ export function ProjectTools() {
 			</TabsContent>
 			<TabsContent value="processes" className="min-h-0 overflow-hidden">
 				<ProcessesPanel cwd={project.directory} />
+			</TabsContent>
+			<TabsContent value="browser" className="min-h-0 overflow-hidden">
+				<BrowserLiveView />
 			</TabsContent>
 		</Tabs>
 	)
