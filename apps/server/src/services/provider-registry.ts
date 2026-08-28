@@ -181,6 +181,9 @@ export class ProviderRegistry {
 		let capturedProviderProgress = false
 		try {
 			for await (const event of routed.driver.sendMessage(id, message)) {
+				// A CLI may still flush buffered stdout after an interrupt (especially through
+				// Windows npm shims). Never persist those stale tool/message events.
+				if (routed.driver.snapshotSession(id)?.session.state === "interrupted") break
 				stateStore.appendAgentEvent(id, event)
 				const now = Date.now()
 				const shouldSnapshot =

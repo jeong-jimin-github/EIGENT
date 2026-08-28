@@ -50,6 +50,29 @@ export interface ClaudeStreamEvent {
 	api_error_status?: number
 }
 
+async function terminateProcessTree(proc: ReturnType<typeof Bun.spawn>): Promise<void> {
+	// On Windows, npm-installed CLIs are commonly launched through a shim. Killing only
+	// the shim leaves the real Node/CLI process (and its tool subprocesses) running.
+	if (process.platform === "win32") {
+		try {
+			const killer = Bun.spawn({
+				cmd: ["taskkill", "/PID", String(proc.pid), "/T", "/F"],
+				stdin: "ignore",
+				stdout: "ignore",
+				stderr: "ignore",
+			})
+			await killer.exited
+		} catch {
+			// Fall through to Bun's direct process kill below.
+		}
+	}
+	try {
+		proc.kill()
+	} catch {
+		// The process may already have exited after taskkill.
+	}
+}
+
 async function* lines(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
 	const reader = stream.getReader()
 	const decoder = new TextDecoder()
@@ -211,8 +234,10 @@ export class ClaudeDriver implements AgentDriver {
 	async interrupt(sessionId: string): Promise<void> {
 		const session = this.sessions.get(sessionId)
 		const proc = this.active.get(sessionId)
-		if (proc) proc.kill()
+		// Publish the interrupted state before terminating the process so any buffered
+		// provider events can be discarded by the registry.
 		if (session) session.state = "interrupted"
+		if (proc) await terminateProcessTree(proc)
 	}
 
 	async resume(sessionId: string): Promise<void> {
