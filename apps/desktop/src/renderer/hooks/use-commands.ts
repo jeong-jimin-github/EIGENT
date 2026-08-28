@@ -1,6 +1,7 @@
 import { useAtomValue } from "jotai"
 import { useCallback, useMemo } from "react"
 import { messagesFamily } from "../atoms/messages"
+import { projectAgentRuntimesAtom, sessionAgentRuntimesAtom } from "../atoms/preferences"
 import { partsFamily } from "../atoms/parts"
 import { sessionFamily } from "../atoms/sessions"
 import { appStore } from "../atoms/store"
@@ -68,6 +69,7 @@ function getUserMessageText(messageId: string): string {
 }
 
 export interface UseSessionRevertResult {
+	supportsOpenCodeCommands: boolean
 	isReverted: boolean
 	revertInfo: Session["revert"] | undefined
 	canUndo: boolean
@@ -84,20 +86,28 @@ export function useSessionRevert(
 	const entry = useAtomValue(sessionFamily(sessionId ?? ""))
 	const session = entry?.session
 	const messages = useAtomValue(messagesFamily(sessionId ?? ""))
+	const sessionAgentRuntimes = useAtomValue(sessionAgentRuntimesAtom)
+	const projectAgentRuntimes = useAtomValue(projectAgentRuntimesAtom)
+	const selectedRuntime =
+		(sessionId ? sessionAgentRuntimes[sessionId] : undefined) ??
+		(directory ? projectAgentRuntimes[directory] : undefined)
+	const supportsOpenCodeCommands = (selectedRuntime?.provider ?? "opencode") === "opencode"
 
-	const isReverted = !!session?.revert
+	const isReverted = supportsOpenCodeCommands && !!session?.revert
 	const revertInfo = session?.revert
 
 	const canUndo = useMemo(() => {
-		if (!directory || !sessionId || !messages || messages.length === 0) return false
+		if (!supportsOpenCodeCommands || !directory || !sessionId || !messages || messages.length === 0) {
+			return false
+		}
 		const target = findUndoTarget(sessionId, revertInfo?.messageID)
 		return target !== null
-	}, [directory, sessionId, messages, revertInfo])
+	}, [supportsOpenCodeCommands, directory, sessionId, messages, revertInfo])
 
-	const canRedo = isReverted
+	const canRedo = supportsOpenCodeCommands && isReverted
 
 	const undo = useCallback(async (): Promise<string | undefined> => {
-		if (!directory || !sessionId) return undefined
+		if (!supportsOpenCodeCommands || !directory || !sessionId) return undefined
 		const client = getProjectClient(directory)
 		if (!client) return undefined
 
@@ -112,10 +122,10 @@ export function useSessionRevert(
 		const userText = getUserMessageText(targetId)
 		await client.session.revert({ sessionID: sessionId, messageID: targetId })
 		return userText
-	}, [directory, sessionId, revertInfo])
+	}, [supportsOpenCodeCommands, directory, sessionId, revertInfo])
 
 	const redo = useCallback(async () => {
-		if (!directory || !sessionId || !revertInfo) return
+		if (!supportsOpenCodeCommands || !directory || !sessionId || !revertInfo) return
 		const client = getProjectClient(directory)
 		if (!client) return
 
@@ -125,11 +135,11 @@ export function useSessionRevert(
 		} else {
 			await client.session.unrevert({ sessionID: sessionId })
 		}
-	}, [directory, sessionId, revertInfo])
+	}, [supportsOpenCodeCommands, directory, sessionId, revertInfo])
 
 	const revertToMessage = useCallback(
 		async (messageId: string) => {
-			if (!directory || !sessionId) return
+			if (!supportsOpenCodeCommands || !directory || !sessionId) return
 			const client = getProjectClient(directory)
 			if (!client) return
 
@@ -140,10 +150,19 @@ export function useSessionRevert(
 
 			await client.session.revert({ sessionID: sessionId, messageID: messageId })
 		},
-		[directory, sessionId],
+		[supportsOpenCodeCommands, directory, sessionId],
 	)
 
-	return { isReverted, revertInfo, canUndo, canRedo, undo, redo, revertToMessage }
+	return {
+		supportsOpenCodeCommands,
+		isReverted,
+		revertInfo,
+		canUndo,
+		canRedo,
+		undo,
+		redo,
+		revertToMessage,
+	}
 }
 
 // ============================================================
@@ -157,7 +176,10 @@ export function useCommands(
 		onUndoTextRestore?: (text: string) => void
 	},
 ): AppCommand[] {
-	const { canUndo, canRedo, undo, redo } = useSessionRevert(directory, sessionId)
+	const { supportsOpenCodeCommands, canUndo, canRedo, undo, redo } = useSessionRevert(
+		directory,
+		sessionId,
+	)
 	const serverCommands = useServerCommands(directory)
 	const entry = useAtomValue(sessionFamily(sessionId ?? ""))
 	const sessionStatus = entry?.status
@@ -197,10 +219,10 @@ export function useCommands(
 			name: "compact",
 			label: "Compact",
 			description: "Summarize the conversation to save context",
-			enabled: !!directory && !!sessionId && isIdle,
+			enabled: supportsOpenCodeCommands && !!directory && !!sessionId && isIdle,
 			source: "client",
 			execute: async () => {
-				if (!directory || !sessionId) return
+				if (!supportsOpenCodeCommands || !directory || !sessionId) return
 				const client = getProjectClient(directory)
 				if (!client) return
 				await client.session.summarize({ sessionID: sessionId })
@@ -209,6 +231,7 @@ export function useCommands(
 
 		return cmds
 	}, [
+		supportsOpenCodeCommands,
 		canUndo,
 		canRedo,
 		undo,
@@ -221,7 +244,8 @@ export function useCommands(
 	])
 
 	const allCommands = useMemo<AppCommand[]>(() => {
-		const serverCmds: AppCommand[] = serverCommands.map((cmd) => ({
+		const serverCmds: AppCommand[] = supportsOpenCodeCommands
+			? serverCommands.map((cmd) => ({
 			name: cmd.name,
 			label: cmd.name.charAt(0).toUpperCase() + cmd.name.slice(1),
 			description: cmd.description ?? `Run /${cmd.name}`,
@@ -237,9 +261,10 @@ export function useCommands(
 					arguments: "",
 				})
 			},
-		}))
+				}))
+			: []
 		return [...clientCommands, ...serverCmds]
-	}, [clientCommands, serverCommands, directory, sessionId, isIdle])
+	}, [clientCommands, serverCommands, supportsOpenCodeCommands, directory, sessionId, isIdle])
 
 	return allCommands
 }

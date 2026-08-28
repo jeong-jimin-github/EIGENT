@@ -66,6 +66,7 @@ import { createLogger } from "../../lib/logger"
 import { computeTurnWorkTimeSplit, formatWorkDuration } from "../../lib/session-metrics"
 import type { Agent, FileAttachment, FilePart, QuestionAnswer, TextPart } from "../../lib/types"
 import { getProjectClient } from "../../services/connection-manager"
+import type { AgentProviderSnapshot, AgentRuntimeSelection } from "../../services/eigent-agents"
 
 const log = createLogger("chat-view")
 
@@ -403,6 +404,10 @@ interface ChatViewProps {
 	vcs?: VcsData | null
 	/** Available OpenCode agents */
 	openCodeAgents?: SdkAgent[]
+	/** Provider-independent runtime selected for this visible chat. */
+	runtime?: AgentRuntimeSelection
+	agentProviders?: AgentProviderSnapshot[]
+	onSelectRuntime?: (runtime: AgentRuntimeSelection) => void
 	/** Permission handlers */
 	onApprove?: (
 		agent: Agent,
@@ -453,6 +458,9 @@ export function ChatView({
 	config,
 	vcs,
 	openCodeAgents,
+	runtime,
+	agentProviders,
+	onSelectRuntime,
 	onApprove,
 	onDeny,
 	onReplyQuestion,
@@ -653,6 +661,11 @@ export function ChatView({
 									isWorking={isWorking}
 									onRevertToMessage={onRevertToMessage}
 									onSendNow={isWorking ? handleSendNow : undefined}
+									onRegenerate={
+										!isWorking && index === turns.length - 1 && onSendMessage
+											? (message) => onSendMessage(agent, message)
+											: undefined
+									}
 									onForkFromTurn={
 										onForkFromTurn
 											? () => {
@@ -714,6 +727,9 @@ export function ChatView({
 					config={config}
 					vcs={vcs}
 					openCodeAgents={openCodeAgents}
+								runtime={runtime}
+								agentProviders={agentProviders}
+								onSelectRuntime={onSelectRuntime}
 					onApprove={handleApprovePermission}
 					onDeny={handleDenyPermission}
 					onReplyQuestion={onReplyQuestion}
@@ -746,6 +762,9 @@ interface ChatInputSectionProps {
 	config?: ConfigData | null
 	vcs?: VcsData | null
 	openCodeAgents?: SdkAgent[]
+	runtime?: AgentRuntimeSelection
+	agentProviders?: AgentProviderSnapshot[]
+	onSelectRuntime?: (runtime: AgentRuntimeSelection) => void
 	onApprove?: (
 		agent: Agent,
 		permissionSessionId: string,
@@ -776,6 +795,9 @@ function ChatInputSection({
 	config,
 	vcs,
 	openCodeAgents,
+	runtime = { provider: "opencode" },
+	agentProviders,
+	onSelectRuntime,
 	onApprove,
 	onDeny,
 	onReplyQuestion,
@@ -942,8 +964,11 @@ function ChatInputSection({
 	}, [selectedVariant, effectiveModel, providers])
 
 	const modelCapabilities = useMemo(
-		() => getModelInputCapabilities(effectiveModel, providers?.providers ?? []),
-		[effectiveModel, providers],
+		() =>
+			runtime.provider === "opencode"
+				? getModelInputCapabilities(effectiveModel, providers?.providers ?? [])
+				: { image: false, pdf: false },
+		[effectiveModel, providers, runtime.provider],
 	)
 
 	const handleModelSelect = useCallback(
@@ -979,6 +1004,7 @@ function ChatInputSection({
 					return true
 				case "compact":
 				case "summarize":
+					if (runtime.provider !== "opencode") return false
 					if (agent.directory && effectiveModel) {
 						const client = getProjectClient(agent.directory)
 						if (client) {
@@ -998,6 +1024,8 @@ function ChatInputSection({
 					break
 			}
 
+			if (runtime.provider !== "opencode") return false
+
 			if (agent.directory) {
 				const client = getProjectClient(agent.directory)
 				if (client) {
@@ -1016,7 +1044,7 @@ function ChatInputSection({
 
 			return false
 		},
-		[agent, onUndo, onRedo, effectiveModel],
+		[agent, onUndo, onRedo, effectiveModel, runtime.provider],
 	)
 
 	const handleSend = useCallback(
@@ -1048,7 +1076,7 @@ function ChatInputSection({
 
 			setSending(true)
 			try {
-				if (effectiveModel && agent.directory) {
+				if (runtime.provider === "opencode" && effectiveModel && agent.directory) {
 					appStore.set(setProjectModelAtom, {
 						directory: agent.directory,
 						model: {
@@ -1098,6 +1126,7 @@ function ChatInputSection({
 			onSendMessage,
 			sending,
 			agent,
+			runtime.provider,
 			effectiveModel,
 			selectedAgent,
 			selectedVariant,
@@ -1109,7 +1138,14 @@ function ChatInputSection({
 		],
 	)
 
-	const canSend = isConnected && !sending
+	const runtimeSnapshot =
+		runtime.provider === "opencode"
+			? undefined
+			: agentProviders?.find((provider) => provider.kind === runtime.provider)
+	const runtimeReady =
+		runtime.provider === "opencode" ||
+		(!!runtime.model && !!runtimeSnapshot?.status.available && !!runtimeSnapshot.status.authenticated)
+	const canSend = isConnected && !sending && runtimeReady
 
 	const handleStop = useCallback(() => {
 		if (onStop && isWorking) {
@@ -1411,7 +1447,7 @@ function ChatInputSection({
 									{/* Toolbar inside the card — agent + model + variant selectors + submit */}
 									<PromptInputFooter>
 										<PromptInputTools>
-											<AttachButton disabled={!isConnected} />
+											<AttachButton disabled={!isConnected || runtime.provider !== "opencode"} />
 											<PromptToolbar
 												agents={openCodeAgents ?? []}
 												selectedAgent={selectedAgent}
@@ -1424,7 +1460,10 @@ function ChatInputSection({
 												recentModels={recentModels}
 												selectedVariant={selectedVariant}
 												onSelectVariant={setSelectedVariant}
-												disabled={!isConnected}
+												disabled={!isConnected || (runtime.provider !== "opencode" && isWorking)}
+												runtime={runtime}
+												agentProviders={agentProviders}
+												onSelectRuntime={onSelectRuntime}
 											/>
 										</PromptInputTools>
 										<PromptInputSubmit

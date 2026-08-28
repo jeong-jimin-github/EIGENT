@@ -11,9 +11,15 @@
 
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useAtomValue, useSetAtom } from "jotai"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { agentFamily, sessionNameFamily } from "../atoms/derived/agents"
-import { upsertSessionAtom } from "../atoms/sessions"
+import {
+	projectAgentRuntimesAtom,
+	sessionAgentRuntimesAtom,
+	setProjectAgentRuntimeAtom,
+	setSessionAgentRuntimeAtom,
+} from "../atoms/preferences"
+import { removeQuestionAtom, upsertSessionAtom } from "../atoms/sessions"
 import { appStore } from "../atoms/store"
 import { viewedSessionIdAtom } from "../atoms/ui"
 import { useSessionRevert } from "../hooks/use-commands"
@@ -24,6 +30,18 @@ import { useSessionChat } from "../hooks/use-session-chat"
 import { createLogger } from "../lib/logger"
 import type { Agent, FileAttachment, QuestionAnswer } from "../lib/types"
 import { fetchSessionById } from "../services/connection-manager"
+import {
+	fetchAgentProviders,
+	type AgentProviderSnapshot,
+	type AgentRuntimeSelection,
+} from "../services/eigent-agents"
+import {
+	followUnifiedAgentHistory,
+	hydrateUnifiedAgentHistory,
+	interruptUnifiedAgentPrompt,
+	isUnifiedAgentPromptActive,
+	sendUnifiedAgentPrompt,
+} from "../services/eigent-chat-adapter"
 import { AgentDetail } from "./agent-detail"
 
 const log = createLogger("session-view")
@@ -56,6 +74,21 @@ export function SessionView({ sessionId }: SessionViewProps) {
 	}, [sessionId, setViewedSessionId])
 
 	const selectedAgent = useAtomValue(agentFamily(sessionId))
+	const sessionAgentRuntimes = useAtomValue(sessionAgentRuntimesAtom)
+	const projectAgentRuntimes = useAtomValue(projectAgentRuntimesAtom)
+	const [agentProviders, setAgentProviders] = useState<AgentProviderSnapshot[]>([])
+	const hydratedUnifiedSessionsRef = useRef(new Set<string>())
+	const locallyCreatedUnifiedSessionsRef = useRef(new Set<string>())
+
+	useEffect(() => {
+		const controller = new AbortController()
+		fetchAgentProviders(controller.signal)
+			.then(setAgentProviders)
+			.catch((err) => {
+				if (!controller.signal.aborted) log.warn("Failed to load unified agent providers", err)
+			})
+		return () => controller.abort()
+	}, [])
 
 	// ── Fallback session fetch ──────────────────────────────────────────────
 	// Subagent sessions are excluded from the initial batch load (roots:true)
@@ -131,17 +164,123 @@ export function SessionView({ sessionId }: SessionViewProps) {
 
 	// Toolbar data -- providers, config, VCS, and OpenCode agents
 	const directory = selectedAgent?.directory ?? null
+	const runtime: AgentRuntimeSelection =
+		sessionAgentRuntimes[sessionId] ??
+		(directory ? projectAgentRuntimes[directory] : undefined) ??
+		{ provider: "opencode" }
 	const { data: providers } = useProviders(directory)
 	const { data: config } = useConfig(directory)
 	const { data: vcs } = useVcs(directory)
 	const { agents: openCodeAgents } = useOpenCodeAgents(directory)
 
+	// Restore provider-independent chat turns from the durable normalized event log after reload.
+	// Sessions created in this renderer are already projected live and must not be replayed again.
+	useEffect(() => {
+		const persisted = sessionAgentRuntimes[sessionId]
+		const agentSessionId = persisted?.agentSessionId
+		if (
+			!selectedAgent ||
+			!agentSessionId ||
+			persisted.provider === "opencode" ||
+			!persisted.model ||
+			locallyCreatedUnifiedSessionsRef.current.has(agentSessionId) ||
+			isUnifiedAgentPromptActive(sessionId, agentSessionId)
+		) {
+			return
+		}
+		const key = `${sessionId}:${agentSessionId}`
+		if (hydratedUnifiedSessionsRef.current.has(key)) return
+		hydratedUnifiedSessionsRef.current.add(key)
+
+		const controller = new AbortController()
+		void (async () => {
+			const restored = await hydrateUnifiedAgentHistory({
+				uiSessionId: sessionId,
+				workspace: selectedAgent.directory,
+				runtime: persisted,
+				agentSessionId,
+				signal: controller.signal,
+			})
+			if (
+				!controller.signal.aborted &&
+				(restored.state === "starting" || restored.state === "running")
+			) {
+				await followUnifiedAgentHistory({
+					uiSessionId: sessionId,
+					workspace: selectedAgent.directory,
+					runtime: persisted,
+					agentSessionId,
+					afterSequence: restored.lastSequence,
+					signal: controller.signal,
+				})
+			}
+		})().catch((err) => {
+			if (!controller.signal.aborted) {
+				hydratedUnifiedSessionsRef.current.delete(key)
+				log.warn("Failed to restore unified agent history", err)
+			}
+		})
+
+		return () => controller.abort()
+	}, [sessionId, selectedAgent, sessionAgentRuntimes])
+
 	// Handlers
+	const persistRuntime = useCallback(
+		(next: AgentRuntimeSelection, agentSessionId?: string) => {
+			appStore.set(setSessionAgentRuntimeAtom, {
+				sessionId,
+				runtime: { ...next, agentSessionId },
+			})
+			if (directory) {
+				appStore.set(setProjectAgentRuntimeAtom, { directory, runtime: next })
+			}
+		},
+		[sessionId, directory],
+	)
+
+	const handleSelectRuntime = useCallback(
+		(next: AgentRuntimeSelection) => {
+			const previous = appStore.get(sessionAgentRuntimesAtom)[sessionId]
+			const keepSession =
+				previous?.provider === next.provider && previous?.model === next.model
+					? previous.agentSessionId
+					: undefined
+			persistRuntime(next, keepSession)
+		},
+		[sessionId, persistRuntime],
+	)
+
+	const sendWithCurrentRuntime = useCallback(
+		async (agent: Agent, message: string) => {
+			const persisted = appStore.get(sessionAgentRuntimesAtom)[sessionId]
+			const currentRuntime = persisted ?? runtime
+			if (currentRuntime.provider === "opencode") return false
+			await sendUnifiedAgentPrompt({
+				uiSessionId: sessionId,
+				workspace: agent.directory,
+				runtime: currentRuntime,
+				message,
+				agentSessionId: persisted?.agentSessionId,
+				onAgentSession: (agentSessionId) => {
+					locallyCreatedUnifiedSessionsRef.current.add(agentSessionId)
+					persistRuntime(currentRuntime, agentSessionId)
+				},
+			})
+			return true
+		},
+		[sessionId, runtime, persistRuntime],
+	)
+
 	const handleStopAgent = useCallback(
 		async (agent: Agent) => {
+			const currentRuntime = appStore.get(sessionAgentRuntimesAtom)[sessionId] ?? runtime
+			if (currentRuntime.provider !== "opencode") {
+				await interruptUnifiedAgentPrompt(sessionId, currentRuntime.agentSessionId)
+				return
+			}
 			await abort(agent.directory, agent.sessionId)
 		},
-		[abort],
+		[abort, sessionId, runtime],
 	)
 
 	const handleApprovePermission = useCallback(
@@ -151,8 +290,7 @@ export function SessionView({ sessionId }: SessionViewProps) {
 			permissionId: string,
 			response?: "once" | "always",
 		) => {
-			// Use permissionSessionId (not agent.sessionId) so that permissions from
-			// sub-agent child sessions are correctly routed to the child's session.
+			// Use permissionSessionId (not agent.sessionId) so sub-agent permissions route correctly.
 			await respondToPermission(
 				agent.directory,
 				permissionSessionId,
@@ -172,16 +310,29 @@ export function SessionView({ sessionId }: SessionViewProps) {
 
 	const handleReplyQuestion = useCallback(
 		async (agent: Agent, requestId: string, answers: QuestionAnswer[]) => {
+			const currentRuntime = appStore.get(sessionAgentRuntimesAtom)[sessionId] ?? runtime
+			if (currentRuntime.provider !== "opencode") {
+				appStore.set(removeQuestionAtom, { sessionId, requestId })
+				const answer = answers.flat().join("\n").trim()
+				if (answer) await sendWithCurrentRuntime(agent, answer)
+				return
+			}
 			await replyToQuestion(agent.directory, requestId, answers)
 		},
-		[replyToQuestion],
+		[replyToQuestion, sessionId, runtime, sendWithCurrentRuntime],
 	)
 
 	const handleRejectQuestion = useCallback(
 		async (agent: Agent, requestId: string) => {
+			const currentRuntime = appStore.get(sessionAgentRuntimesAtom)[sessionId] ?? runtime
+			if (currentRuntime.provider !== "opencode") {
+				appStore.set(removeQuestionAtom, { sessionId, requestId })
+				await interruptUnifiedAgentPrompt(sessionId, currentRuntime.agentSessionId)
+				return
+			}
 			await rejectQuestion(agent.directory, requestId)
 		},
-		[rejectQuestion],
+		[rejectQuestion, sessionId, runtime],
 	)
 
 	const handleRenameSession = useCallback(
@@ -237,6 +388,12 @@ export function SessionView({ sessionId }: SessionViewProps) {
 				variant: options?.variant,
 			})
 			try {
+				if (await sendWithCurrentRuntime(agent, message)) {
+					log.debug("handleSendMessage completed via unified runtime", {
+						sessionId: agent.sessionId,
+					})
+					return
+				}
 				await sendPrompt(agent.directory, agent.sessionId, message, {
 					model: options?.model,
 					agent: options?.agentName || undefined,
@@ -249,7 +406,7 @@ export function SessionView({ sessionId }: SessionViewProps) {
 				throw err
 			}
 		},
-		[sendPrompt],
+		[sendPrompt, sendWithCurrentRuntime],
 	)
 
 	// Session not yet resolved — show spinner while the fallback fetch runs
@@ -296,14 +453,17 @@ export function SessionView({ sessionId }: SessionViewProps) {
 			config={config}
 			vcs={vcs}
 			openCodeAgents={openCodeAgents}
-			canUndo={canUndo}
-			canRedo={canRedo}
-			onUndo={undo}
-			onRedo={redo}
-			isReverted={isReverted}
-			onRevertToMessage={revertToMessage}
-			onForkFromTurn={handleForkFromTurn}
-			onDeletePart={handleDeletePart}
+			runtime={runtime}
+			agentProviders={agentProviders}
+			onSelectRuntime={handleSelectRuntime}
+			canUndo={runtime.provider === "opencode" && canUndo}
+			canRedo={runtime.provider === "opencode" && canRedo}
+			onUndo={runtime.provider === "opencode" ? undo : undefined}
+			onRedo={runtime.provider === "opencode" ? redo : undefined}
+			isReverted={runtime.provider === "opencode" && isReverted}
+			onRevertToMessage={runtime.provider === "opencode" ? revertToMessage : undefined}
+			onForkFromTurn={runtime.provider === "opencode" ? handleForkFromTurn : undefined}
+			onDeletePart={runtime.provider === "opencode" ? handleDeletePart : undefined}
 		/>
 	)
 }

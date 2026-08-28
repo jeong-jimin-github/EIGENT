@@ -22,7 +22,7 @@ interface ClaudeSession extends AgentSession {
 	started: boolean
 }
 
-interface ClaudeStreamEvent {
+export interface ClaudeStreamEvent {
 	type?: string
 	subtype?: string
 	session_id?: string
@@ -33,8 +33,11 @@ interface ClaudeStreamEvent {
 		delta?: { type?: string; text?: string; thinking?: string; partial_json?: string }
 	}
 	message?: {
+		error?: string
+		is_api_error_message?: boolean
 		content?: Array<{
 			type?: string
+			text?: string
 			id?: string
 			name?: string
 			input?: unknown
@@ -43,6 +46,31 @@ interface ClaudeStreamEvent {
 	}
 	result?: string
 	errors?: string[]
+	is_error?: boolean
+	api_error_status?: number
+}
+
+async function terminateProcessTree(proc: ReturnType<typeof Bun.spawn>): Promise<void> {
+	// On Windows, npm-installed CLIs are commonly launched through a shim. Killing only
+	// the shim leaves the real Node/CLI process (and its tool subprocesses) running.
+	if (process.platform === "win32") {
+		try {
+			const killer = Bun.spawn({
+				cmd: ["taskkill", "/PID", String(proc.pid), "/T", "/F"],
+				stdin: "ignore",
+				stdout: "ignore",
+				stderr: "ignore",
+			})
+			await killer.exited
+		} catch {
+			// Fall through to Bun's direct process kill below.
+		}
+	}
+	try {
+		proc.kill()
+	} catch {
+		// The process may already have exited after taskkill.
+	}
 }
 
 async function* lines(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
@@ -61,7 +89,7 @@ async function* lines(stream: ReadableStream<Uint8Array>): AsyncGenerator<string
 	if (buffer.trim()) yield buffer
 }
 
-function mapClaudeEvent(event: ClaudeStreamEvent): AgentEvent[] {
+export function mapClaudeEvent(event: ClaudeStreamEvent): AgentEvent[] {
 	if (event.type === "stream_event" && event.event?.type === "content_block_delta") {
 		if (event.event.delta?.type === "text_delta" && event.event.delta.text) {
 			return [{ type: "message.delta", text: event.event.delta.text }]
@@ -88,7 +116,7 @@ function mapClaudeEvent(event: ClaudeStreamEvent): AgentEvent[] {
 		return results
 	}
 
-	if (event.type === "result" && event.subtype !== "success") {
+	if (event.type === "result" && (event.subtype !== "success" || event.is_error)) {
 		return [
 			{
 				type: "error",
@@ -158,9 +186,16 @@ export class ClaudeDriver implements AgentDriver {
 
 		session.state = "running"
 		yield { type: "state.changed", state: "running" }
-		const proc = Bun.spawn({ cmd: args, cwd: session.workspace, stdout: "pipe", stderr: "pipe" })
+		const proc = Bun.spawn({
+			cmd: args,
+			cwd: session.workspace,
+			stdin: "ignore",
+			stdout: "pipe",
+			stderr: "pipe",
+		})
 		this.active.set(sessionId, proc)
 		session.started = true
+		let sawError = false
 
 		try {
 			for await (const line of lines(proc.stdout as ReadableStream<Uint8Array>)) {
@@ -170,7 +205,10 @@ export class ClaudeDriver implements AgentDriver {
 				} catch {
 					continue
 				}
-				for (const event of mapClaudeEvent(parsed)) yield event
+				for (const event of mapClaudeEvent(parsed)) {
+					if (event.type === "error") sawError = true
+					yield event
+				}
 			}
 			const code = await proc.exited
 			if (code === 0) {
@@ -179,10 +217,12 @@ export class ClaudeDriver implements AgentDriver {
 			} else if ((session.state as string) !== "interrupted") {
 				const stderr = await new Response(proc.stderr as ReadableStream<Uint8Array>).text()
 				session.state = "failed"
-				yield {
-					type: "error",
-					message: stderr.trim() || `Claude exited with ${code}`,
-					recoverable: true,
+				if (!sawError) {
+					yield {
+						type: "error",
+						message: stderr.trim() || `Claude exited with ${code}`,
+						recoverable: true,
+					}
 				}
 				yield { type: "state.changed", state: "failed" }
 			}
@@ -194,8 +234,10 @@ export class ClaudeDriver implements AgentDriver {
 	async interrupt(sessionId: string): Promise<void> {
 		const session = this.sessions.get(sessionId)
 		const proc = this.active.get(sessionId)
-		if (proc) proc.kill()
+		// Publish the interrupted state before terminating the process so any buffered
+		// provider events can be discarded by the registry.
 		if (session) session.state = "interrupted"
+		if (proc) await terminateProcessTree(proc)
 	}
 
 	async resume(sessionId: string): Promise<void> {

@@ -9,6 +9,8 @@ import type {
 	StartSessionOptions,
 } from "@eigent/agent-core"
 
+const CLI_DEFAULT_MODEL = "__default__"
+
 export interface AntigravityDriverOptions {
 	executable?: string
 	models?: string[]
@@ -48,6 +50,29 @@ export interface AntigravityStreamEvent {
 		status?: string
 		response?: string
 		error?: string
+	}
+}
+
+async function terminateProcessTree(proc: ReturnType<typeof Bun.spawn>): Promise<void> {
+	// On Windows, npm-installed CLIs are commonly launched through a shim. Killing only
+	// the shim leaves the real Node/CLI process (and its tool subprocesses) running.
+	if (process.platform === "win32") {
+		try {
+			const killer = Bun.spawn({
+				cmd: ["taskkill", "/PID", String(proc.pid), "/T", "/F"],
+				stdin: "ignore",
+				stdout: "ignore",
+				stderr: "ignore",
+			})
+			await killer.exited
+		} catch {
+			// Fall through to Bun's direct process kill below.
+		}
+	}
+	try {
+		proc.kill()
+	} catch {
+		// The process may already have exited after taskkill.
 	}
 }
 
@@ -165,7 +190,7 @@ async function capture(
 function toModel(id: string): AgentModel {
 	return {
 		id,
-		name: id,
+		name: id === CLI_DEFAULT_MODEL ? "CLI default" : id,
 		provider: "antigravity",
 		reasoning: true,
 		vision: true,
@@ -188,7 +213,7 @@ export class AntigravityDriver implements AgentDriver {
 	constructor(options: AntigravityDriverOptions = {}) {
 		this.executable = options.executable ?? "agy"
 		this.configuredModels = options.models ?? []
-		this.modelDiscoveryTimeoutMs = options.modelDiscoveryTimeoutMs ?? 5_000
+		this.modelDiscoveryTimeoutMs = options.modelDiscoveryTimeoutMs ?? 1_500
 		this.printTimeout = options.printTimeout ?? "10m"
 		this.homeDir = options.homeDir
 	}
@@ -231,9 +256,8 @@ export class AntigravityDriver implements AgentDriver {
 			"--disable-slash-commands",
 			"--print-timeout",
 			this.printTimeout,
-			"--model",
-			session.model,
 		]
+		if (session.model !== CLI_DEFAULT_MODEL) args.push("--model", session.model)
 		if (session.yolo) args.push("--dangerously-skip-permissions")
 		if (session.conversationId) args.push("--conversation", session.conversationId)
 
@@ -323,8 +347,10 @@ export class AntigravityDriver implements AgentDriver {
 	async interrupt(sessionId: string): Promise<void> {
 		const session = this.sessions.get(sessionId)
 		const proc = this.active.get(sessionId)
-		if (proc) proc.kill()
+		// Publish the interrupted state before terminating the process so any buffered
+		// provider events can be discarded by the registry.
 		if (session) session.state = "interrupted"
+		if (proc) await terminateProcessTree(proc)
 	}
 
 	async resume(sessionId: string): Promise<void> {
@@ -357,7 +383,7 @@ export class AntigravityDriver implements AgentDriver {
 		)
 		const fromStdout = parseAvailableModels(probe.stdout)
 		const ids = fromStdout.length ? fromStdout : parseAvailableModels(probe.stderr)
-		this.discoveredModels = [...new Set(ids)].map(toModel)
+		this.discoveredModels = [...new Set(ids.length ? ids : [CLI_DEFAULT_MODEL])].map(toModel)
 		return this.discoveredModels.map((item) => ({ ...item }))
 	}
 

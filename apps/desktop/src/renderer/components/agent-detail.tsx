@@ -38,6 +38,7 @@ import { useServerConnection } from "../hooks/use-server"
 import type { ChatTurn } from "../hooks/use-session-chat"
 import type { Agent, FileAttachment, QuestionAnswer } from "../lib/types"
 import { fetchOpenInTargets, isElectron, openInTarget } from "../services/backend"
+import type { AgentProviderSnapshot, AgentRuntimeSelection } from "../services/eigent-agents"
 import { useSetAppBarContent } from "./app-bar-context"
 import { ChatView } from "./chat"
 import { PalotWordmark } from "./palot-wordmark"
@@ -84,6 +85,11 @@ interface AgentDetailProps {
 	vcs?: VcsData | null
 	/** Available OpenCode agents for agent selector */
 	openCodeAgents?: SdkAgent[]
+	/** Provider-independent runtime selected for this visible chat session. */
+	runtime?: AgentRuntimeSelection
+	/** Provider status/model snapshots from the unified agent backend. */
+	agentProviders?: AgentProviderSnapshot[]
+	onSelectRuntime?: (runtime: AgentRuntimeSelection) => void
 	/** Whether undo is available */
 	canUndo?: boolean
 	/** Whether redo is available */
@@ -119,6 +125,9 @@ export function AgentDetail({
 	config,
 	vcs,
 	openCodeAgents,
+	runtime,
+	agentProviders,
+	onSelectRuntime,
 	chatLoadingEarlier,
 	chatHasEarlier,
 	onLoadEarlier,
@@ -274,6 +283,9 @@ export function AgentDetail({
 					config={config}
 					vcs={vcs}
 					openCodeAgents={openCodeAgents}
+					runtime={runtime}
+					agentProviders={agentProviders}
+					onSelectRuntime={onSelectRuntime}
 					onApprove={onApprove}
 					onDeny={onDeny}
 					onReplyQuestion={onReplyQuestion}

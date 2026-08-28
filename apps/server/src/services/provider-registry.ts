@@ -156,6 +156,19 @@ export class ProviderRegistry {
 		return this.sessions.get(id)?.session ?? stateStore.getAgentSession(id)?.session ?? null
 	}
 
+	setSessionState(id: string, state: AgentSession["state"]): void {
+		const routed = this.sessions.get(id)
+		if (!routed) return
+		const snapshot = routed.driver.snapshotSession(id)
+		const updated = {
+			session: { ...(snapshot?.session ?? routed.session), state },
+			driverState: snapshot?.driverState,
+		}
+		routed.driver.restoreSession(updated)
+		routed.session = updated.session
+		stateStore.saveAgentSnapshot(updated)
+	}
+
 	getEvents(id: string, afterSequence = 0) {
 		return stateStore.listAgentEvents(id, afterSequence)
 	}
@@ -168,6 +181,9 @@ export class ProviderRegistry {
 		let capturedProviderProgress = false
 		try {
 			for await (const event of routed.driver.sendMessage(id, message)) {
+				// A CLI may still flush buffered stdout after an interrupt (especially through
+				// Windows npm shims). Never persist those stale tool/message events.
+				if (routed.driver.snapshotSession(id)?.session.state === "interrupted") break
 				stateStore.appendAgentEvent(id, event)
 				const now = Date.now()
 				const shouldSnapshot =
