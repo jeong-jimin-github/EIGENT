@@ -49,6 +49,7 @@ async function jsonRequest<T>(
 async function ptySmoke(url: string): Promise<string> {
 	return new Promise((resolve, reject) => {
 		let output = ""
+		let exitSent = false
 		const timer = setTimeout(() => reject(new Error(`PTY websocket timed out: ${output}`)), 8_000)
 		const ws = new WebSocket(url)
 		ws.addEventListener("open", () => {
@@ -56,12 +57,16 @@ async function ptySmoke(url: string): Promise<string> {
 			ws.send(
 				JSON.stringify({
 					type: "input",
-					data: "printf 'EIGENT_PTY_SERVER_SMOKE\n'; stty size; exit\r",
+					data: "printf 'EIGENT_PTY_SERVER_SMOKE\n'; stty size\r",
 				}),
 			)
 		})
 		ws.addEventListener("message", (event) => {
 			output += typeof event.data === "string" ? event.data : String(event.data)
+			if (!exitSent && output.includes("EIGENT_PTY_SERVER_SMOKE") && /21\s+92/.test(output)) {
+				exitSent = true
+				ws.send(JSON.stringify({ type: "input", data: "exit\r" }))
+			}
 		})
 		ws.addEventListener("error", () => {
 			clearTimeout(timer)
