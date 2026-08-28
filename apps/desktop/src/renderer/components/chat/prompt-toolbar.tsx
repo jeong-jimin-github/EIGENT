@@ -48,6 +48,10 @@ import {
 	type ModelLimitInfo,
 	shortModelName,
 } from "../../lib/session-metrics"
+import type {
+	AgentProviderSnapshot,
+	AgentRuntimeSelection,
+} from "../../services/eigent-agents"
 import { ProviderIcon } from "../settings/provider-icon"
 
 // ============================================================
@@ -439,10 +443,103 @@ export function VariantSelector({
 }
 
 // ============================================================
+// Unified AgentDriver runtime selector
+// ============================================================
+
+const RUNTIME_LABELS: Record<AgentRuntimeSelection["provider"], string> = {
+	opencode: "OpenCode",
+	codex: "Codex",
+	claude: "Claude",
+	antigravity: "Antigravity",
+	openai: "OpenAI API",
+	anthropic: "Anthropic API",
+}
+
+function RuntimeSelector({
+	runtime,
+	snapshots,
+	onSelectRuntime,
+	disabled,
+}: {
+	runtime: AgentRuntimeSelection
+	snapshots: AgentProviderSnapshot[]
+	onSelectRuntime: (runtime: AgentRuntimeSelection) => void
+	disabled?: boolean
+}) {
+	const snapshot = snapshots.find((item) => item.kind === runtime.provider)
+	const runtimeReady = snapshot?.status.available && snapshot.status.authenticated
+
+	return (
+		<>
+			<Select
+				value={runtime.provider}
+				onValueChange={(value) => {
+					const provider = value as AgentRuntimeSelection["provider"]
+					if (provider === "opencode") {
+						onSelectRuntime({ provider })
+						return
+					}
+					const next = snapshots.find((item) => item.kind === provider)
+					onSelectRuntime({ provider, model: next?.models[0]?.id })
+				}}
+				disabled={disabled}
+			>
+				<SelectTrigger className={TOOLBAR_TRIGGER_CN}>
+					<SelectValue>{RUNTIME_LABELS[runtime.provider]}</SelectValue>
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="opencode">OpenCode</SelectItem>
+					{snapshots.map((item) => {
+						const ready = item.status.available && item.status.authenticated
+						return (
+							<SelectItem key={item.kind} value={item.kind} disabled={!ready}>
+								<div className="flex min-w-0 flex-col">
+									<span>{RUNTIME_LABELS[item.kind]}</span>
+									{!ready && (
+										<span className="text-[10px] text-muted-foreground">
+											{item.status.detail ||
+												(!item.status.available ? "Not installed" : "Authentication required")}
+										</span>
+									)}
+								</div>
+							</SelectItem>
+						)
+					})}
+				</SelectContent>
+			</Select>
+
+			{runtime.provider !== "opencode" && (
+				<Select
+					value={runtime.model}
+					onValueChange={(model) => onSelectRuntime({ provider: runtime.provider, model: model ?? undefined })}
+					disabled={disabled || !runtimeReady || !snapshot?.models.length}
+				>
+					<SelectTrigger className={TOOLBAR_TRIGGER_CN}>
+						<SelectValue placeholder="Select model" />
+					</SelectTrigger>
+					<SelectContent>
+						{snapshot?.models.map((model) => (
+							<SelectItem key={model.id} value={model.id}>
+								{model.name}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+			)}
+		</>
+	)
+}
+
+// ============================================================
 // Combined Prompt Toolbar
 // ============================================================
 
 export interface PromptToolbarProps {
+	/** Provider-independent execution runtime shown ahead of legacy OpenCode selectors. */
+	runtime?: AgentRuntimeSelection
+	agentProviders?: AgentProviderSnapshot[]
+	onSelectRuntime?: (runtime: AgentRuntimeSelection) => void
+
 	/** Available agents from OpenCode */
 	agents: SdkAgent[]
 	/** Currently selected agent name */
@@ -474,6 +571,9 @@ export interface PromptToolbarProps {
  * Renders inside the PromptInputFooter > PromptInputTools slot.
  */
 export function PromptToolbar({
+	runtime: runtimeProp,
+	agentProviders = [],
+	onSelectRuntime,
 	agents,
 	selectedAgent,
 	defaultAgent,
@@ -495,10 +595,22 @@ export function PromptToolbar({
 
 	const hasAgents = agents.length > 0
 	const hasVariants = variants.length > 0
+	const runtime = runtimeProp ?? { provider: "opencode" as const }
 
 	return (
 		<div className="flex min-w-0 flex-wrap items-center gap-0.5">
-			{hasAgents && (
+			{onSelectRuntime && (
+				<RuntimeSelector
+					runtime={runtime}
+					snapshots={agentProviders}
+					onSelectRuntime={onSelectRuntime}
+					disabled={disabled}
+				/>
+			)}
+
+			{onSelectRuntime && runtime.provider === "opencode" && <Separator orientation="vertical" className="mx-0.5 my-2 self-stretch" />}
+
+			{runtime.provider === "opencode" && hasAgents && (
 				<AgentSelector
 					agents={agents}
 					selectedAgent={selectedAgent}
@@ -508,20 +620,22 @@ export function PromptToolbar({
 				/>
 			)}
 
-			{hasAgents && <Separator orientation="vertical" className="mx-0.5 my-2 self-stretch" />}
+			{runtime.provider === "opencode" && hasAgents && <Separator orientation="vertical" className="mx-0.5 my-2 self-stretch" />}
 
-			<ModelSelector
+			{runtime.provider === "opencode" && (
+				<ModelSelector
 				providers={providers}
 				effectiveModel={effectiveModel}
 				hasOverride={hasModelOverride}
 				onSelectModel={onSelectModel}
 				recentModels={recentModels}
-				disabled={disabled}
-			/>
+					disabled={disabled}
+				/>
+			)}
 
-			{hasVariants && <Separator orientation="vertical" className="mx-0.5 my-2 self-stretch" />}
+			{runtime.provider === "opencode" && hasVariants && <Separator orientation="vertical" className="mx-0.5 my-2 self-stretch" />}
 
-			{hasVariants && (
+			{runtime.provider === "opencode" && hasVariants && (
 				<VariantSelector
 					variants={variants}
 					selectedVariant={selectedVariant}

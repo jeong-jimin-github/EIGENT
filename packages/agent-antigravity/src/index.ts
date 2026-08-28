@@ -9,6 +9,8 @@ import type {
 	StartSessionOptions,
 } from "@eigent/agent-core"
 
+const CLI_DEFAULT_MODEL = "__default__"
+
 export interface AntigravityDriverOptions {
 	executable?: string
 	models?: string[]
@@ -165,7 +167,7 @@ async function capture(
 function toModel(id: string): AgentModel {
 	return {
 		id,
-		name: id,
+		name: id === CLI_DEFAULT_MODEL ? "CLI default" : id,
 		provider: "antigravity",
 		reasoning: true,
 		vision: true,
@@ -188,7 +190,7 @@ export class AntigravityDriver implements AgentDriver {
 	constructor(options: AntigravityDriverOptions = {}) {
 		this.executable = options.executable ?? "agy"
 		this.configuredModels = options.models ?? []
-		this.modelDiscoveryTimeoutMs = options.modelDiscoveryTimeoutMs ?? 5_000
+		this.modelDiscoveryTimeoutMs = options.modelDiscoveryTimeoutMs ?? 1_500
 		this.printTimeout = options.printTimeout ?? "10m"
 		this.homeDir = options.homeDir
 	}
@@ -231,9 +233,8 @@ export class AntigravityDriver implements AgentDriver {
 			"--disable-slash-commands",
 			"--print-timeout",
 			this.printTimeout,
-			"--model",
-			session.model,
 		]
+		if (session.model !== CLI_DEFAULT_MODEL) args.push("--model", session.model)
 		if (session.yolo) args.push("--dangerously-skip-permissions")
 		if (session.conversationId) args.push("--conversation", session.conversationId)
 
@@ -357,7 +358,7 @@ export class AntigravityDriver implements AgentDriver {
 		)
 		const fromStdout = parseAvailableModels(probe.stdout)
 		const ids = fromStdout.length ? fromStdout : parseAvailableModels(probe.stderr)
-		this.discoveredModels = [...new Set(ids)].map(toModel)
+		this.discoveredModels = [...new Set(ids.length ? ids : [CLI_DEFAULT_MODEL])].map(toModel)
 		return this.discoveredModels.map((item) => ({ ...item }))
 	}
 

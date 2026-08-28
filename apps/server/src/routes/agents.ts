@@ -155,6 +155,11 @@ const app = new Hono()
 					session &&
 					!["starting", "running", "waiting_input"].includes(session.state)
 				) {
+					// A very fast provider failure can finish between the getEvents() call
+					// above and this terminal-state check. Flush that durable tail before
+					// sending `done`, otherwise the connected UI misses run.failed/error.
+					if (providerRegistry.getEvents(id, cursor).length > 0) continue
+
 					await stream.writeSSE({
 						event: "done",
 						data: JSON.stringify({

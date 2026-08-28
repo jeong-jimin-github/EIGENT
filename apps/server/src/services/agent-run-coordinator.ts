@@ -24,6 +24,8 @@ export function isRunTerminalEvent(event: AgentEvent): event is RunTerminalEvent
 export interface AgentRunBackend {
 	getSession(id: string): AgentSession | null
 	events(id: string, message: string): AsyncIterable<AgentEvent>
+	/** Keep the provider-side/in-memory session state aligned with durable run state. */
+	setSessionState?(id: string, state: AgentSession["state"]): void
 }
 
 export interface AgentRunStart {
@@ -113,23 +115,30 @@ export class AgentRunCoordinator {
 
 	private async execute(sessionId: string, message: string, requestId: string): Promise<void> {
 		try {
-			for await (const _event of this.backend.events(sessionId, message)) {
+			let providerError: string | undefined
+			for await (const event of this.backend.events(sessionId, message)) {
 				// ProviderRegistry persists normalized provider events. Wake replay subscribers.
+				if (event.type === "error") providerError = event.message
 				this.notify(sessionId)
 			}
 			const state = this.backend.getSession(sessionId)?.state
 			if (state === "interrupted") {
 				this.append(sessionId, { type: "run.interrupted", requestId })
 			} else if (state === "failed") {
-				this.append(sessionId, { type: "run.failed", requestId, message: "Agent run failed" })
+				this.append(sessionId, {
+					type: "run.failed",
+					requestId,
+					message: providerError ?? "Agent run failed",
+				})
 			} else {
 				this.append(sessionId, { type: "run.completed", requestId })
 			}
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
+			this.backend.setSessionState?.(sessionId, "failed")
 			this.append(sessionId, { type: "state.changed", state: "failed" })
-			this.append(sessionId, { type: "run.failed", requestId, message })
 			this.append(sessionId, { type: "error", message, recoverable: true })
+			this.append(sessionId, { type: "run.failed", requestId, message })
 		}
 	}
 

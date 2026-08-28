@@ -10,6 +10,8 @@ import type {
 	StartSessionOptions,
 } from "@eigent/agent-core"
 
+const CLI_DEFAULT_MODEL = "__default__"
+
 interface CodexDriverOptions {
 	executable?: string
 	models?: string[]
@@ -56,14 +58,19 @@ async function* lines(stream: ReadableStream<Uint8Array>): AsyncGenerator<string
 	if (buffer.trim()) yield buffer
 }
 
-function codexEvent(event: CodexJsonEvent): AgentEvent[] {
+export function codexEvent(event: CodexJsonEvent): AgentEvent[] {
 	if (event.type === "item.completed" && event.item?.type === "agent_message" && event.item.text) {
 		return [{ type: "message.delta", text: event.item.text }]
 	}
 	if (event.type === "item.completed" && event.item?.type === "reasoning" && event.item.text) {
 		return [{ type: "reasoning.delta", text: event.item.text }]
 	}
-	if (event.type === "item.started" && event.item?.id && event.item.type) {
+	if (
+		event.type === "item.started" &&
+		event.item?.id &&
+		event.item.type &&
+		!(["agent_message", "reasoning", "error"] as string[]).includes(event.item.type)
+	) {
 		return [
 			{
 				type: "tool.started",
@@ -73,7 +80,12 @@ function codexEvent(event: CodexJsonEvent): AgentEvent[] {
 			},
 		]
 	}
-	if (event.type === "item.completed" && event.item?.id && event.item.type !== "agent_message") {
+	if (
+		event.type === "item.completed" &&
+		event.item?.id &&
+		event.item.type &&
+		!(["agent_message", "reasoning", "error"] as string[]).includes(event.item.type)
+	) {
 		const name = event.item.command ?? event.item.tool ?? event.item.type ?? "tool"
 		const output = event.item.aggregated_output ?? event.item.result
 		return [
@@ -130,7 +142,8 @@ export class CodexDriver implements AgentDriver {
 			session.systemPrompt && !session.providerSessionId
 				? `${session.systemPrompt}\n\n${message}`
 				: message
-		const common = ["--json", "--skip-git-repo-check", "-m", session.model]
+		const common = ["--json", "--skip-git-repo-check"]
+		if (session.model !== CLI_DEFAULT_MODEL) common.push("-m", session.model)
 		if (session.yolo) common.push("--dangerously-bypass-approvals-and-sandbox")
 		const args = session.providerSessionId
 			? [this.executable, "exec", "resume", ...common, session.providerSessionId, prompt]
@@ -138,8 +151,16 @@ export class CodexDriver implements AgentDriver {
 
 		session.state = "running"
 		yield { type: "state.changed", state: "running" }
-		const proc = Bun.spawn({ cmd: args, cwd: session.workspace, stdout: "pipe", stderr: "pipe" })
+		const proc = Bun.spawn({
+			cmd: args,
+			cwd: session.workspace,
+			stdin: "ignore",
+			stdout: "pipe",
+			stderr: "pipe",
+		})
 		this.active.set(sessionId, proc)
+		let sawError = false
+		const seenErrors = new Set<string>()
 
 		try {
 			for await (const line of lines(proc.stdout as ReadableStream<Uint8Array>)) {
@@ -152,7 +173,14 @@ export class CodexDriver implements AgentDriver {
 				if (parsed.type === "thread.started" && parsed.thread_id) {
 					session.providerSessionId = parsed.thread_id
 				}
-				for (const event of codexEvent(parsed)) yield event
+				for (const event of codexEvent(parsed)) {
+					if (event.type === "error") {
+						if (seenErrors.has(event.message)) continue
+						seenErrors.add(event.message)
+						sawError = true
+					}
+					yield event
+				}
 			}
 			const code = await proc.exited
 			if (code === 0) {
@@ -161,10 +189,12 @@ export class CodexDriver implements AgentDriver {
 			} else if ((session.state as string) !== "interrupted") {
 				const stderr = await new Response(proc.stderr as ReadableStream<Uint8Array>).text()
 				session.state = "failed"
-				yield {
-					type: "error",
-					message: stderr.trim() || `Codex exited with ${code}`,
-					recoverable: true,
+				if (!sawError) {
+					yield {
+						type: "error",
+						message: stderr.trim() || `Codex exited with ${code}`,
+						recoverable: true,
+					}
 				}
 				yield { type: "state.changed", state: "failed" }
 			}
@@ -211,9 +241,10 @@ export class CodexDriver implements AgentDriver {
 	}
 
 	async getModels(): Promise<AgentModel[]> {
-		return this.models.map((id) => ({
+		const ids = this.models.length ? this.models : [CLI_DEFAULT_MODEL]
+		return ids.map((id) => ({
 			id,
-			name: id,
+			name: id === CLI_DEFAULT_MODEL ? "CLI default" : id,
 			provider: this.kind,
 			reasoning: true,
 			toolCalling: true,

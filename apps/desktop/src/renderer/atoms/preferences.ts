@@ -16,6 +16,35 @@ export interface PersistedModelRef {
 	agent?: string
 }
 
+export type AgentRuntimeProvider =
+	| "opencode"
+	| "codex"
+	| "claude"
+	| "antigravity"
+	| "openai"
+	| "anthropic"
+
+export interface PersistedAgentRuntime {
+	provider: AgentRuntimeProvider
+	model?: string
+	agentSessionId?: string
+	/**
+	 * Provider-session IDs remembered for this visible chat. This lets a user
+	 * switch provider/model and later switch back without silently losing the
+	 * provider-side conversation context.
+	 */
+	agentSessionIds?: Record<string, string>
+}
+
+export type ProjectAgentRuntime = Omit<PersistedAgentRuntime, "agentSessionId" | "agentSessionIds">
+
+function agentRuntimeSessionKey(
+	runtime: Pick<PersistedAgentRuntime, "provider" | "model">,
+): string | null {
+	if (runtime.provider === "opencode" || !runtime.model) return null
+	return `${runtime.provider}:${runtime.model}`
+}
+
 // ============================================================
 // One-time migration from Zustand persist to Jotai atomWithStorage
 // ============================================================
@@ -95,6 +124,18 @@ export const projectModelsAtom = atomWithStorage<Record<string, PersistedModelRe
 	{},
 )
 
+/** Provider-independent runtime selection keyed by the visible chat session. */
+export const sessionAgentRuntimesAtom = atomWithStorage<Record<string, PersistedAgentRuntime>>(
+	"eigent:sessionAgentRuntimes",
+	{},
+)
+
+/** Default provider-independent runtime keyed by workspace directory. */
+export const projectAgentRuntimesAtom = atomWithStorage<Record<string, ProjectAgentRuntime>>(
+	"eigent:projectAgentRuntimes",
+	{},
+)
+
 /**
  * Whether the user has dismissed the automations permissions info banner.
  * Once dismissed, the banner never reappears.
@@ -148,5 +189,50 @@ export const setProjectModelAtom = atom(
 			agent: args.model.agent,
 		}
 		set(projectModelsAtom, models)
+	},
+)
+
+/** Persist the unified runtime for a visible chat session without touching its chat state. */
+export const setSessionAgentRuntimeAtom = atom(
+	null,
+	(
+		get,
+		set,
+		args: { sessionId: string; runtime: PersistedAgentRuntime },
+	) => {
+		const runtimes = { ...get(sessionAgentRuntimesAtom) }
+		const previous = runtimes[args.sessionId]
+		const remembered = { ...previous?.agentSessionIds, ...args.runtime.agentSessionIds }
+		const previousKey = previous ? agentRuntimeSessionKey(previous) : null
+		if (previousKey && previous?.agentSessionId) remembered[previousKey] = previous.agentSessionId
+
+		const nextKey = agentRuntimeSessionKey(args.runtime)
+		const agentSessionId = args.runtime.agentSessionId ?? (nextKey ? remembered[nextKey] : undefined)
+		if (nextKey && agentSessionId) remembered[nextKey] = agentSessionId
+
+		runtimes[args.sessionId] = {
+			provider: args.runtime.provider,
+			model: args.runtime.model,
+			agentSessionId,
+			agentSessionIds: Object.keys(remembered).length > 0 ? remembered : undefined,
+		}
+		set(sessionAgentRuntimesAtom, runtimes)
+	},
+)
+
+/** Persist the default unified runtime for a workspace without provider session state. */
+export const setProjectAgentRuntimeAtom = atom(
+	null,
+	(
+		get,
+		set,
+		args: { directory: string; runtime: ProjectAgentRuntime },
+	) => {
+		const runtimes = { ...get(projectAgentRuntimesAtom) }
+		runtimes[args.directory] = {
+			provider: args.runtime.provider,
+			model: args.runtime.model,
+		}
+		set(projectAgentRuntimesAtom, runtimes)
 	},
 )

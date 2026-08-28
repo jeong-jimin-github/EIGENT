@@ -58,11 +58,42 @@ class FakeBackend implements AgentRunBackend {
 	}
 }
 
+class NormalizedFailingBackend implements AgentRunBackend {
+	constructor(
+		private readonly store: StateStore,
+		private session: AgentSession,
+	) {}
+
+	getSession(id: string): AgentSession | null {
+		return id === this.session.id ? { ...this.session } : null
+	}
+
+	async *events(id: string): AsyncIterable<AgentEvent> {
+		this.session.state = "running"
+		const running = { type: "state.changed", state: "running" } as const
+		this.store.appendAgentEvent(id, running)
+		yield running
+
+		const error = { type: "error", message: "provider quota exhausted", recoverable: true } as const
+		this.store.appendAgentEvent(id, error)
+		yield error
+
+		this.session.state = "failed"
+		const failed = { type: "state.changed", state: "failed" } as const
+		this.store.appendAgentEvent(id, failed)
+		yield failed
+	}
+}
+
 class FailingBackend implements AgentRunBackend {
 	constructor(private readonly session: AgentSession) {}
 
 	getSession(id: string): AgentSession | null {
 		return id === this.session.id ? { ...this.session } : null
+	}
+
+	setSessionState(id: string, state: AgentSession["state"]): void {
+		if (id === this.session.id) this.session.state = state
 	}
 
 	async *events(): AsyncIterable<AgentEvent> {
@@ -130,19 +161,42 @@ describe("AgentRunCoordinator", () => {
 		}
 	})
 
+	test("preserves the provider error message on normalized failed runs", async () => {
+		const store = new StateStore(":memory:")
+		try {
+			const session = makeSession()
+			store.saveAgentSnapshot({ session })
+			const coordinator = new AgentRunCoordinator(
+				new NormalizedFailingBackend(store, session),
+				store,
+			)
+			coordinator.start(session.id, "fail", "request-normalized-failed")
+			const terminal = await waitForTerminalRun(store, session.id, "request-normalized-failed")
+			expect(terminal.event).toEqual({
+				type: "run.failed",
+				requestId: "request-normalized-failed",
+				message: "provider quota exhausted",
+			})
+		} finally {
+			store.close()
+		}
+	})
+
 	test("persists failed session state when the provider throws outside normalized events", async () => {
 		const store = new StateStore(":memory:")
 		try {
 			const session = makeSession("running")
 			store.saveAgentSnapshot({ session })
-			const coordinator = new AgentRunCoordinator(new FailingBackend(session), store)
+			const backend = new FailingBackend(session)
+			const coordinator = new AgentRunCoordinator(backend, store)
 			coordinator.start(session.id, "explode", "request-failed")
 			const terminal = await waitForTerminalRun(store, session.id, "request-failed")
 			expect(terminal.event.type).toBe("run.failed")
 			expect(store.getAgentSession(session.id)?.session.state).toBe("failed")
-			expect(store.listAgentEvents(session.id).some((item) => item.event.type === "error")).toBe(
-				true,
-			)
+			expect(backend.getSession(session.id)?.state).toBe("failed")
+			const events = store.listAgentEvents(session.id)
+			expect(events.some((item) => item.event.type === "error")).toBe(true)
+			expect(events.at(-1)?.event.type).toBe("run.failed")
 		} finally {
 			store.close()
 		}

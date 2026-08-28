@@ -24,6 +24,7 @@ import {
 	GitForkIcon,
 	ListOrderedIcon,
 	Loader2Icon,
+	RefreshCwIcon,
 	SendIcon,
 	Undo2Icon,
 	XIcon,
@@ -574,6 +575,8 @@ interface ChatTurnProps {
 	onRevertToMessage?: (messageId: string) => Promise<void>
 	/** Interrupt the current work and send this queued message immediately */
 	onSendNow?: (turn: ChatTurnType) => Promise<void>
+	/** Regenerate this response by sending the same user prompt through the active runtime. */
+	onRegenerate?: (message: string) => Promise<void>
 	/** Fork the conversation from this turn boundary */
 	onForkFromTurn?: () => Promise<void>
 	/** Delete a specific part from a message (for error recovery) */
@@ -602,6 +605,7 @@ export const ChatTurnComponent = memo(
 		isWorking,
 		onRevertToMessage,
 		onSendNow,
+		onRegenerate,
 		onForkFromTurn,
 		onDeletePart,
 	}: ChatTurnProps) {
@@ -699,6 +703,17 @@ export const ChatTurnComponent = memo(
 		const handleScrollToTop = useCallback(() => {
 			turnRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
 		}, [])
+
+		const [regenerating, setRegenerating] = useState(false)
+		const handleRegenerate = useCallback(async () => {
+			if (!onRegenerate || regenerating || !userText.trim()) return
+			setRegenerating(true)
+			try {
+				await onRegenerate(userText)
+			} finally {
+				setRegenerating(false)
+			}
+		}, [onRegenerate, regenerating, userText])
 
 		const [forking, setForking] = useState(false)
 		const handleFork = useCallback(async () => {
@@ -1023,6 +1038,15 @@ export const ChatTurnComponent = memo(
 						>
 							{copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
 						</MessageAction>
+						{onRegenerate && !working && !isSynthetic && (
+							<MessageAction
+								tooltip={regenerating ? "Regenerating..." : "Regenerate response"}
+								onClick={handleRegenerate}
+								disabled={regenerating}
+							>
+								<RefreshCwIcon className={`size-3 ${regenerating ? "animate-spin" : ""}`} />
+							</MessageAction>
+						)}
 					{onForkFromTurn && !working && (
 						<MessageAction
 							tooltip={forking ? "Forking..." : "Fork from here"}

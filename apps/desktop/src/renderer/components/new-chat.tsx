@@ -25,7 +25,13 @@ import {
 	MonitorIcon,
 } from "lucide-react"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { projectModelsAtom, setProjectModelAtom } from "../atoms/preferences"
+import {
+	projectAgentRuntimesAtom,
+	projectModelsAtom,
+	setProjectAgentRuntimeAtom,
+	setProjectModelAtom,
+	setSessionAgentRuntimeAtom,
+} from "../atoms/preferences"
 import {
 	removeSessionAtom,
 	setSessionBranchAtom,
@@ -49,6 +55,12 @@ import {
 } from "../hooks/use-opencode-data"
 import { useAgentActions } from "../hooks/use-server"
 import type { FileAttachment } from "../lib/types"
+import {
+	fetchAgentProviders,
+	type AgentProviderSnapshot,
+	type AgentRuntimeSelection,
+} from "../services/eigent-agents"
+import { sendUnifiedAgentPrompt } from "../services/eigent-chat-adapter"
 import { createWorktree, randomWorktreeName } from "../services/worktree-service"
 import { useSetAppBarContent } from "./app-bar-context"
 import { BranchPicker } from "./branch-picker"
@@ -234,6 +246,8 @@ export function NewChat() {
 	const [selectedModel, setSelectedModel] = useState<ModelRef | null>(null)
 	const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
 	const [selectedVariant, setSelectedVariant] = useState<string | undefined>(undefined)
+	const [runtime, setRuntime] = useState<AgentRuntimeSelection>({ provider: "opencode" })
+	const [agentProviders, setAgentProviders] = useState<AgentProviderSnapshot[]>([])
 
 	// Mention popover state
 	const [mentionOpen, setMentionOpen] = useState(false)
@@ -249,7 +263,18 @@ export function NewChat() {
 	// wins over config.model and global recent list — matching the user's expectation
 	// that the model they last used in this project sticks.
 	const projectModels = useAtomValue(projectModelsAtom)
+	const projectAgentRuntimes = useAtomValue(projectAgentRuntimesAtom)
 	const prevDirectoryRef = useRef<string>("")
+
+	useEffect(() => {
+		const controller = new AbortController()
+		fetchAgentProviders(controller.signal)
+			.then(setAgentProviders)
+			.catch((err) => {
+				if (!controller.signal.aborted) console.warn("Failed to load unified agent providers", err)
+			})
+		return () => controller.abort()
+	}, [])
 	useEffect(() => {
 		if (!selectedDirectory || selectedDirectory === prevDirectoryRef.current) return
 		prevDirectoryRef.current = selectedDirectory
@@ -263,7 +288,8 @@ export function NewChat() {
 		}
 		// Restore the per-project agent preference (null = use config default)
 		setSelectedAgent(stored?.agent ?? null)
-	}, [selectedDirectory, projectModels])
+		setRuntime(projectAgentRuntimes[selectedDirectory] ?? { provider: "opencode" })
+	}, [selectedDirectory, projectModels, projectAgentRuntimes])
 
 	const selectedProject = useMemo(
 		() => projects.find((p) => p.directory === selectedDirectory),
@@ -286,6 +312,16 @@ export function NewChat() {
 			if (model) addRecentModel(model)
 		},
 		[addRecentModel],
+	)
+
+	const handleRuntimeSelect = useCallback(
+		(next: AgentRuntimeSelection) => {
+			setRuntime(next)
+			if (selectedDirectory) {
+				appStore.set(setProjectAgentRuntimeAtom, { directory: selectedDirectory, runtime: next })
+			}
+		},
+		[selectedDirectory],
 	)
 
 	// Count active sessions on the selected directory (for branch switch warnings)
@@ -379,8 +415,11 @@ export function NewChat() {
 
 	// Model input capabilities (for attachment warnings)
 	const modelCapabilities = useMemo(
-		() => getModelInputCapabilities(effectiveModel, providers?.providers ?? []),
-		[effectiveModel, providers],
+		() =>
+			runtime.provider === "opencode"
+				? getModelInputCapabilities(effectiveModel, providers?.providers ?? [])
+				: { image: false, pdf: false },
+		[effectiveModel, providers, runtime.provider],
 	)
 
 	useEffect(() => {
@@ -414,6 +453,19 @@ export function NewChat() {
 		})
 	}, [effectiveModel, selectedDirectory, selectedVariant, selectedAgent])
 
+	const persistSessionRuntime = useCallback(
+		(sessionId: string, agentSessionId?: string) => {
+			appStore.set(setSessionAgentRuntimeAtom, {
+				sessionId,
+				runtime: { ...runtime, agentSessionId },
+			})
+			if (selectedDirectory) {
+				appStore.set(setProjectAgentRuntimeAtom, { directory: selectedDirectory, runtime })
+			}
+		},
+		[runtime, selectedDirectory],
+	)
+
 	/** Navigate to the chat view for a given session. */
 	const navigateToSession = useCallback(
 		(sessionId: string) => {
@@ -440,16 +492,29 @@ export function NewChat() {
 				appStore.set(setSessionBranchAtom, { sessionId: session.id, branch: currentBranch })
 			}
 
-			persistProjectModel()
+			if (runtime.provider === "opencode") {
+				persistProjectModel()
+				await sendPrompt(selectedDirectory, session.id, promptText, {
+					model: effectiveModel ?? undefined,
+					agent: selectedAgent ?? undefined,
+					variant: selectedVariant,
+					files,
+				})
+				clearDraft()
+				navigateToSession(session.id)
+				return
+			}
 
-			await sendPrompt(selectedDirectory, session.id, promptText, {
-				model: effectiveModel ?? undefined,
-				agent: selectedAgent ?? undefined,
-				variant: selectedVariant,
-				files,
-			})
+			persistSessionRuntime(session.id)
 			clearDraft()
 			navigateToSession(session.id)
+			await sendUnifiedAgentPrompt({
+				uiSessionId: session.id,
+				workspace: selectedDirectory,
+				runtime,
+				message: promptText,
+				onAgentSession: (agentSessionId) => persistSessionRuntime(session.id, agentSessionId),
+			})
 		},
 		[
 			selectedDirectory,
@@ -460,6 +525,8 @@ export function NewChat() {
 			selectedVariant,
 			clearDraft,
 			persistProjectModel,
+			persistSessionRuntime,
+			runtime,
 			navigateToSession,
 			vcs,
 		],
@@ -497,7 +564,7 @@ export function NewChat() {
 				setupPhase: "creating-worktree",
 			})
 
-			persistProjectModel()
+			if (runtime.provider === "opencode") persistProjectModel()
 			clearDraft()
 			navigateToSession(stubId)
 
@@ -539,13 +606,25 @@ export function NewChat() {
 					navigateToSession(session.id)
 					appStore.set(removeSessionAtom, stubId)
 
-					// Phase 3: Send the prompt
-					await sendPrompt(sdkDirectory, session.id, promptText, {
-						model: effectiveModel ?? undefined,
-						agent: selectedAgent ?? undefined,
-						variant: selectedVariant,
-						files,
-					})
+					// Phase 3: Send the prompt using the selected runtime.
+					if (runtime.provider === "opencode") {
+						await sendPrompt(sdkDirectory, session.id, promptText, {
+							model: effectiveModel ?? undefined,
+							agent: selectedAgent ?? undefined,
+							variant: selectedVariant,
+							files,
+						})
+					} else {
+						persistSessionRuntime(session.id)
+						await sendUnifiedAgentPrompt({
+							uiSessionId: session.id,
+							workspace: sdkDirectory,
+							runtime,
+							message: promptText,
+							onAgentSession: (agentSessionId) =>
+								persistSessionRuntime(session.id, agentSessionId),
+						})
+					}
 				} catch (err) {
 					console.error("Worktree launch failed:", err)
 					// Remove the stub and navigate back to new chat
@@ -566,6 +645,8 @@ export function NewChat() {
 			selectedVariant,
 			clearDraft,
 			persistProjectModel,
+			persistSessionRuntime,
+			runtime,
 			navigateToSession,
 			navigate,
 		],
@@ -574,6 +655,14 @@ export function NewChat() {
 	const handleLaunch = useCallback(
 		async (promptText: string, files?: FileAttachment[]) => {
 			if (!selectedDirectory || !promptText) return
+			if (runtime.provider !== "opencode" && !runtime.model) {
+				setError("Select a model for the unified provider before starting a session.")
+				return
+			}
+			if (runtime.provider !== "opencode" && files?.length) {
+				setError("File attachments are not supported by unified providers yet.")
+				return
+			}
 			setLaunching(true)
 			setError(null)
 			try {
@@ -591,10 +680,17 @@ export function NewChat() {
 				setLaunching(false)
 			}
 		},
-		[selectedDirectory, worktreeMode, launchLocal, launchWorktree],
+		[selectedDirectory, runtime, worktreeMode, launchLocal, launchWorktree],
 	)
 
-	const hasToolbar = providers
+	const runtimeSnapshot =
+		runtime.provider === "opencode"
+			? undefined
+			: agentProviders.find((provider) => provider.kind === runtime.provider)
+	const runtimeReady =
+		runtime.provider === "opencode" ||
+		(!!runtime.model && !!runtimeSnapshot?.status.available && !!runtimeSnapshot.status.authenticated)
+	const hasToolbar = !!providers || agentProviders.length > 0
 
 	return (
 		<div className="relative flex h-full flex-col">
@@ -659,7 +755,7 @@ export function NewChat() {
 									key={suggestion.text}
 									type="button"
 									onClick={() => handleLaunch(suggestion.text)}
-									disabled={launching || !selectedDirectory}
+									disabled={launching || !selectedDirectory || !runtimeReady}
 									className="group/card flex flex-col gap-3 rounded-xl border border-border/50 bg-background/40 backdrop-blur-sm p-4 text-left transition-colors hover:border-muted-foreground/30 hover:bg-background/60 disabled:opacity-50"
 								>
 									<Icon className="size-5 text-muted-foreground transition-colors group-hover/card:text-foreground" />
@@ -716,7 +812,7 @@ export function NewChat() {
 							<PromptInputTextarea
 								placeholder="What should this session work on?"
 								autoFocus
-								disabled={launching || !selectedDirectory || projects.length === 0}
+								disabled={launching || !selectedDirectory || projects.length === 0 || !runtimeReady}
 								className="min-h-[80px]"
 								onKeyDown={handleTextareaKeyDown}
 							/>
@@ -737,6 +833,9 @@ export function NewChat() {
 											recentModels={recentModels}
 											selectedVariant={selectedVariant}
 											onSelectVariant={setSelectedVariant}
+											runtime={runtime}
+											agentProviders={agentProviders}
+											onSelectRuntime={handleRuntimeSelect}
 										/>
 									</PromptInputTools>
 								</PromptInputFooter>
