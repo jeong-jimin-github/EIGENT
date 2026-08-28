@@ -3,6 +3,7 @@ import { Hono } from "hono"
 import { createBunWebSocket } from "hono/bun"
 import { cors } from "hono/cors"
 import agents from "./routes/agents"
+import browser from "./routes/browser"
 import git from "./routes/git"
 import health from "./routes/health"
 import modelState from "./routes/model-state"
@@ -11,6 +12,7 @@ import recovery from "./routes/recovery"
 import servers from "./routes/servers"
 import tasks from "./routes/tasks"
 import workspace from "./routes/workspace"
+import { browserRuntime } from "./services/browser-runtime"
 import { ensureSingleServer } from "./services/server-manager"
 import { createTerminalSession, type TerminalSession } from "./services/terminal-session"
 
@@ -86,6 +88,7 @@ app.use(
 
 const routes = app
 	.route("/api/agents", agents)
+	.route("/api/browser", browser)
 	.route("/api/git", git)
 	.route("/api/processes", processes)
 	.route("/api/recovery", recovery)
@@ -129,6 +132,19 @@ const port = Number(process.env.PORT) || 3100
 const hostname = process.env.HOST || "0.0.0.0"
 
 console.log(`EIGENT server starting on http://${hostname}:${port}`)
+
+browserRuntime
+	.ensureReady()
+	.then(async () => {
+		const status = await browserRuntime.status()
+		console.log(`Persistent browser ready at ${status.cdpUrl} (${status.profileDir})`)
+	})
+	.catch((err) => {
+		console.warn(
+			"Persistent browser unavailable on boot:",
+			err instanceof Error ? err.message : err,
+		)
+	})
 
 ensureSingleServer()
 	.then((server) => {
