@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
@@ -46,10 +46,16 @@ async function jsonRequest<T>(
 	return { response, body }
 }
 
+function occurrences(value: string, marker: string): number {
+	return value.split(marker).length - 1
+}
+
 async function ptySmoke(url: string): Promise<string> {
 	return new Promise((resolve, reject) => {
 		let output = ""
 		let exitSent = false
+		const marker = "EIGENT_PTY_SERVER_OUTPUT"
+		const doneMarker = "EIGENT_PTY_SERVER_DONE"
 		const timer = setTimeout(() => reject(new Error(`PTY websocket timed out: ${output}`)), 8_000)
 		const ws = new WebSocket(url)
 		ws.addEventListener("open", () => {
@@ -57,13 +63,13 @@ async function ptySmoke(url: string): Promise<string> {
 			ws.send(
 				JSON.stringify({
 					type: "input",
-					data: "printf 'EIGENT_PTY_SERVER_SMOKE\n'; stty size\r",
+					data: `echo ${marker}; stty size > .eigent-pty-server-size; echo ${doneMarker}\r`,
 				}),
 			)
 		})
 		ws.addEventListener("message", (event) => {
 			output += typeof event.data === "string" ? event.data : String(event.data)
-			if (!exitSent && output.includes("EIGENT_PTY_SERVER_SMOKE") && /21\s+92/.test(output)) {
+			if (!exitSent && occurrences(output, marker) >= 2 && occurrences(output, doneMarker) >= 2) {
 				exitSent = true
 				ws.send(JSON.stringify({ type: "input", data: "exit\r" }))
 			}
@@ -192,8 +198,12 @@ try {
 	const ptyOutput = await ptySmoke(
 		`ws://${host}/api/terminal/ws?${new URLSearchParams({ cwd: project }).toString()}`,
 	)
-	assert(ptyOutput.includes("EIGENT_PTY_SERVER_SMOKE"), `PTY output missing marker: ${ptyOutput}`)
-	assert(/21\s+92/.test(ptyOutput), `PTY resize did not apply: ${ptyOutput}`)
+	assert(
+		occurrences(ptyOutput, "EIGENT_PTY_SERVER_OUTPUT") >= 2,
+		`PTY output missing executed marker: ${ptyOutput}`,
+	)
+	const ptySize = (await readFile(path.join(project, ".eigent-pty-server-size"), "utf8")).trim()
+	assert(/^21\s+92$/.test(ptySize), `PTY resize did not apply: ${ptySize}`)
 
 	const agentHealth = await fetch(`${httpBase}/health/agents`)
 	assert([200, 503].includes(agentHealth.status), `agent health returned ${agentHealth.status}`)
