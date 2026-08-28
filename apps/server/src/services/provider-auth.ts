@@ -2,6 +2,7 @@
 import { randomUUID } from "node:crypto"
 import { existsSync } from "node:fs"
 import path from "node:path"
+import { claudeSubscriptionEnvironment } from "@eigent/agent-claude"
 
 export interface ProviderAuthTask {
 	id: string
@@ -52,7 +53,8 @@ function providerEnvironment(
 	provider: "codex" | "claude",
 	executable: string,
 ): NodeJS.ProcessEnv | undefined {
-	if (provider !== "codex" || !path.isAbsolute(executable)) return undefined
+	if (provider === "claude") return claudeSubscriptionEnvironment()
+	if (!path.isAbsolute(executable)) return undefined
 	return {
 		...process.env,
 		PATH: [path.dirname(executable), process.env.PATH].filter(Boolean).join(path.delimiter),
@@ -64,7 +66,9 @@ export function startProviderAuth(provider: "codex" | "claude"): ProviderAuthTas
 	if (!executable)
 		throw new Error(`${provider === "codex" ? "Codex CLI" : "Claude Code"} is not installed`)
 	const cmd =
-		provider === "codex" ? [executable, "login", "--device-auth"] : [executable, "auth", "login"]
+		provider === "codex"
+			? [executable, "login", "--device-auth"]
+			: [executable, "auth", "login", "--claudeai"]
 	const task: InternalTask = {
 		id: randomUUID(),
 		provider,

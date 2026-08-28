@@ -50,6 +50,80 @@ export interface ClaudeStreamEvent {
 	api_error_status?: number
 }
 
+const CLAUDE_SUBSCRIPTION_ENV_OVERRIDES = new Set([
+	"ANTHROPIC_API_KEY",
+	"ANTHROPIC_AUTH_TOKEN",
+	"ANTHROPIC_BASE_URL",
+])
+
+function isClaudeSubscriptionOverride(key: string): boolean {
+	return CLAUDE_SUBSCRIPTION_ENV_OVERRIDES.has(key) || key.startsWith("CLAUDE_CODE_USE_")
+}
+
+export function claudeSubscriptionEnvironment(
+	source: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+	const env: Record<string, string> = {}
+	for (const [key, value] of Object.entries(source)) {
+		if (value !== undefined && !isClaudeSubscriptionOverride(key)) env[key] = value
+	}
+	return env
+}
+
+export function claudeSubscriptionOverrides(source: NodeJS.ProcessEnv = process.env): string[] {
+	return Object.keys(source)
+		.filter((key) => source[key] && isClaudeSubscriptionOverride(key))
+		.sort()
+}
+
+interface ClaudeCommandOptions {
+	executable: string
+	model: string
+	yolo: boolean
+	effort?: ClaudeDriverOptions["effort"]
+	sessionId: string
+	started: boolean
+	systemPrompt?: string
+	message: string
+}
+
+export function buildClaudeCommand(options: ClaudeCommandOptions): string[] {
+	const args = [
+		options.executable,
+		"-p",
+		"--output-format",
+		"stream-json",
+		"--verbose",
+		"--include-partial-messages",
+		"--model",
+		options.model,
+	]
+	if (options.yolo) args.push("--permission-mode", "bypassPermissions")
+	if (options.effort) args.push("--effort", options.effort)
+	if (options.started) {
+		args.push("--resume", options.sessionId)
+	} else {
+		args.push("--session-id", options.sessionId)
+		if (options.systemPrompt) args.push("--append-system-prompt", options.systemPrompt)
+	}
+	args.push(options.message)
+	return args
+}
+
+export function formatClaudeFailure(
+	providerMessage: string | undefined,
+	exitCode: number,
+	stderr: string,
+): string {
+	const parts: string[] = []
+	const message = providerMessage?.trim()
+	const diagnostic = stderr.trim()
+	if (message) parts.push(message)
+	if (exitCode !== 0) parts.push(`Claude exit code: ${exitCode}`)
+	if (diagnostic && diagnostic !== message) parts.push(`Claude stderr: ${diagnostic}`)
+	return parts.join("\n") || "Claude Code execution failed"
+}
+
 async function terminateProcessTree(proc: ReturnType<typeof Bun.spawn>): Promise<void> {
 	// On Windows, npm-installed CLIs are commonly launched through a shim. Killing only
 	// the shim leaves the real Node/CLI process (and its tool subprocesses) running.
@@ -164,38 +238,31 @@ export class ClaudeDriver implements AgentDriver {
 		if (!session) throw new Error(`Unknown Claude session: ${sessionId}`)
 		if (this.active.has(sessionId)) throw new Error("Claude session is already running")
 
-		const args = [
-			this.executable,
-			"-p",
-			"--output-format",
-			"stream-json",
-			"--verbose",
-			"--include-partial-messages",
-			"--model",
-			session.model,
-		]
-		if (session.yolo) args.push("--permission-mode", "bypassPermissions")
-		if (this.effort) args.push("--effort", this.effort)
-		if (session.started) {
-			args.push("--resume", session.id)
-		} else {
-			args.push("--session-id", session.id)
-			if (session.systemPrompt) args.push("--append-system-prompt", session.systemPrompt)
-		}
-		args.push(message)
+		const args = buildClaudeCommand({
+			executable: this.executable,
+			model: session.model,
+			yolo: session.yolo,
+			effort: this.effort,
+			sessionId: session.id,
+			started: session.started,
+			systemPrompt: session.systemPrompt,
+			message,
+		})
 
 		session.state = "running"
 		yield { type: "state.changed", state: "running" }
 		const proc = Bun.spawn({
 			cmd: args,
 			cwd: session.workspace,
+			env: claudeSubscriptionEnvironment(),
 			stdin: "ignore",
 			stdout: "pipe",
 			stderr: "pipe",
 		})
 		this.active.set(sessionId, proc)
 		session.started = true
-		let sawError = false
+		let providerError: string | undefined
+		const stderrPromise = new Response(proc.stderr as ReadableStream<Uint8Array>).text()
 
 		try {
 			for await (const line of lines(proc.stdout as ReadableStream<Uint8Array>)) {
@@ -206,23 +273,23 @@ export class ClaudeDriver implements AgentDriver {
 					continue
 				}
 				for (const event of mapClaudeEvent(parsed)) {
-					if (event.type === "error") sawError = true
+					if (event.type === "error") {
+						providerError ??= event.message
+						continue
+					}
 					yield event
 				}
 			}
-			const code = await proc.exited
-			if (code === 0) {
+			const [code, stderr] = await Promise.all([proc.exited, stderrPromise])
+			if (code === 0 && !providerError) {
 				session.state = "completed"
 				yield { type: "state.changed", state: "completed" }
 			} else if ((session.state as string) !== "interrupted") {
-				const stderr = await new Response(proc.stderr as ReadableStream<Uint8Array>).text()
 				session.state = "failed"
-				if (!sawError) {
-					yield {
-						type: "error",
-						message: stderr.trim() || `Claude exited with ${code}`,
-						recoverable: true,
-					}
+				yield {
+					type: "error",
+					message: formatClaudeFailure(providerError, code, stderr),
+					recoverable: true,
 				}
 				yield { type: "state.changed", state: "failed" }
 			}
@@ -287,6 +354,7 @@ export class ClaudeDriver implements AgentDriver {
 		try {
 			const proc = Bun.spawn({
 				cmd: [executable, "auth", "status"],
+				env: claudeSubscriptionEnvironment(),
 				stdout: "pipe",
 				stderr: "pipe",
 			})
@@ -299,10 +367,14 @@ export class ClaudeDriver implements AgentDriver {
 				authMethod?: string
 				apiProvider?: string
 			}
+			const ignoredEnvironment = claudeSubscriptionOverrides()
 			return {
 				available: true,
 				authenticated: code === 0 && parsed.loggedIn === true,
-				detail: JSON.stringify(parsed),
+				detail: JSON.stringify({
+					...parsed,
+					...(ignoredEnvironment.length ? { ignoredEnvironment } : {}),
+				}),
 			}
 		} catch (err) {
 			return {

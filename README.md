@@ -37,7 +37,7 @@ The server exposes provider discovery/status, session creation, SSE message stre
 - Managed-process smoke test passed with captured output and exit code `0`.
 - Terminal WebSocket input/output smoke test passed on Windows using the development fallback.
 - Mock streaming tests passed for OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages.
-- Claude Code OAuth login is detected successfully on the development machine.
+- Claude Code subscription status is checked in an isolated first-party environment; inherited Anthropic/proxy credentials are ignored so they cannot masquerade as Claude subscription auth.
 
 Known blockers and remaining work are tracked in **GitHub Issues**.
 

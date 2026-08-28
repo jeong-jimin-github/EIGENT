@@ -30,7 +30,7 @@
 
 ## 현재 알려진 blocker
 
-- Claude Code 2.1.238 OAuth 로그인/상태 감지는 정상이나 실제 `/api/agents/.../messages` 호출이 현재 exit code 1로 종료됨.
+- Claude Code 2.1.238의 기존 `oauth_token` 상태는 호스트의 `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_BASE_URL`/`CLAUDE_CODE_USE_OPENAI` 주입으로 생긴 false-positive였음. Claude subscription 드라이버는 이제 해당 API/provider override를 제거하고 실행하며, 현재 개발 머신의 순수 first-party 상태는 미로그인(`loggedIn=false`)이라 실제 completion E2E는 `claude auth login --claudeai` 완료 전까지 차단됨.
 - Codex CLI 0.150.1은 Windows에서 `/api/agents` 실제 E2E(stream/resume/YOLO/interrupt)를 검증했고, Ubuntu 26.04 네이티브 환경에서도 설치/ChatGPT 인증/device-auth challenge를 검증함. Linux 추가 turn은 현재 계정 사용량 한도 때문에 `thread.started` 이후 provider가 거절했으며 설치·인증 경로 자체는 정상.
 - SQLite 기반 task/session/process 영속화와 stale 상태 복구, durable agent run, SSE cursor replay, Project Tools 재연결/backoff까지 구현됨.
 

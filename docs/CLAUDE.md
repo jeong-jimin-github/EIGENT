@@ -13,6 +13,8 @@ claude auth status
 
 EIGENT starts a non-interactive stream-JSON turn with the selected model/workspace, normalizes system/assistant/result events into the common agent event stream, and maps provider failures (including quota/auth HTTP failures) to a durable run error instead of silently dropping the CLI result. Interrupt/resume is handled by the provider/session lifecycle rather than by an interactive terminal prompt.
 
+The `claude` driver is the Claude subscription path. EIGENT deliberately removes API/provider-routing overrides such as `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, and `CLAUDE_CODE_USE_*` from the Claude child process. Without this isolation, a host-level compatibility proxy can make `claude auth status` look authenticated while the actual request is routed away from the first-party Claude subscription. API-compatible Anthropic endpoints belong on EIGENT's separate `anthropic` provider.
+
 The package regression suite includes stream parsing and provider-error normalization:
 
 ```bash
