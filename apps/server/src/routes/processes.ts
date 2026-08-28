@@ -1,3 +1,4 @@
+import path from "node:path"
 import { Hono } from "hono"
 import {
 	clearFinishedProcesses,
@@ -8,15 +9,24 @@ import {
 	startManagedProcess,
 	writeManagedProcess,
 } from "../services/process-manager"
+import { stateStore } from "../services/state"
 
 const app = new Hono()
 	.get("/", (c) => c.json({ hostname: HOSTNAME, processes: listManagedProcesses() }, 200))
 	.post("/", async (c) => {
-		const body = (await c.req.json()) as { command?: string; cwd?: string }
+		const body = (await c.req.json()) as { command?: string; cwd?: string; taskId?: string }
 		if (!body.command?.trim() || !body.cwd) {
 			return c.json({ error: "command and cwd are required" }, 400)
 		}
-		return c.json(startManagedProcess(body.command, body.cwd), 201)
+		if (body.taskId) {
+			const task = stateStore.getTask(body.taskId)
+			if (!task) return c.json({ error: "task not found" }, 400)
+			const relative = path.relative(path.resolve(task.workspace), path.resolve(body.cwd))
+			if (relative.startsWith("..") || path.isAbsolute(relative)) {
+				return c.json({ error: "process cwd must be inside task workspace" }, 400)
+			}
+		}
+		return c.json(startManagedProcess(body.command, body.cwd, body.taskId), 201)
 	})
 	.get("/:id", (c) => {
 		const info = getManagedProcess(c.req.param("id"))

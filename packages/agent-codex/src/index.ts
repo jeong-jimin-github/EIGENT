@@ -5,6 +5,7 @@ import type {
 	AgentEvent,
 	AgentModel,
 	AgentSession,
+	AgentSessionSnapshot,
 	AgentStatus,
 	StartSessionOptions,
 } from "@eigent/agent-core"
@@ -110,6 +111,7 @@ export class CodexDriver implements AgentDriver {
 			provider: this.kind,
 			model: options.model,
 			workspace: options.workspace,
+			taskId: options.taskId,
 			state: "starting",
 			createdAt: Date.now(),
 			yolo: options.yolo ?? true,
@@ -182,6 +184,30 @@ export class CodexDriver implements AgentDriver {
 		const session = this.sessions.get(sessionId)
 		if (!session) throw new Error(`Unknown Codex session: ${sessionId}`)
 		if (session.state === "interrupted" || session.state === "failed") session.state = "running"
+	}
+
+	snapshotSession(sessionId: string): AgentSessionSnapshot | null {
+		const session = this.sessions.get(sessionId)
+		if (!session) return null
+		const { providerSessionId, yolo, systemPrompt, ...sessionInfo } = session
+		return {
+			session: { ...sessionInfo },
+			driverState: { providerSessionId, yolo, systemPrompt },
+		}
+	}
+
+	restoreSession(snapshot: AgentSessionSnapshot): void {
+		const state = (snapshot.driverState ?? {}) as {
+			providerSessionId?: string
+			yolo?: boolean
+			systemPrompt?: string
+		}
+		this.sessions.set(snapshot.session.id, {
+			...snapshot.session,
+			providerSessionId: state.providerSessionId,
+			yolo: state.yolo ?? true,
+			systemPrompt: state.systemPrompt,
+		})
 	}
 
 	async getModels(): Promise<AgentModel[]> {

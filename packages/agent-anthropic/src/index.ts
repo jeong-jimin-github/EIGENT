@@ -5,6 +5,7 @@ import type {
 	AgentEvent,
 	AgentModel,
 	AgentSession,
+	AgentSessionSnapshot,
 	AgentStatus,
 	StartSessionOptions,
 } from "@eigent/agent-core"
@@ -83,6 +84,7 @@ export class AnthropicCompatibleDriver implements AgentDriver {
 			provider: this.kind,
 			model: options.model || this.config.model || "",
 			workspace: options.workspace,
+			taskId: options.taskId,
 			state: "starting",
 			createdAt: Date.now(),
 			systemPrompt: options.systemPrompt,
@@ -197,6 +199,28 @@ export class AnthropicCompatibleDriver implements AgentDriver {
 		const session = this.sessions.get(sessionId)
 		if (!session) throw new Error(`Unknown Anthropic session: ${sessionId}`)
 		if (session.state === "interrupted" || session.state === "failed") session.state = "running"
+	}
+
+	snapshotSession(sessionId: string): AgentSessionSnapshot | null {
+		const session = this.sessions.get(sessionId)
+		if (!session) return null
+		const { systemPrompt, history, ...sessionInfo } = session
+		return {
+			session: { ...sessionInfo },
+			driverState: { systemPrompt, history },
+		}
+	}
+
+	restoreSession(snapshot: AgentSessionSnapshot): void {
+		const state = (snapshot.driverState ?? {}) as {
+			systemPrompt?: string
+			history?: Array<{ role: "user" | "assistant"; content: string }>
+		}
+		this.sessions.set(snapshot.session.id, {
+			...snapshot.session,
+			systemPrompt: state.systemPrompt,
+			history: state.history ?? [],
+		})
 	}
 
 	async getModels(): Promise<AgentModel[]> {

@@ -14,6 +14,7 @@ import type {
 	StartSessionOptions,
 } from "@eigent/agent-core"
 import { OpenAICompatibleDriver, type OpenAIProtocol } from "@eigent/agent-openai"
+import { stateStore } from "./state"
 
 export interface ProviderSnapshot {
 	kind: AgentProviderKind
@@ -94,6 +95,27 @@ export class ProviderRegistry {
 	private readonly drivers = buildDrivers()
 	private readonly sessions = new Map<string, RoutedSession>()
 
+	constructor() {
+		stateStore.markActiveAgentSessionsInterrupted()
+		for (const persisted of stateStore.listAgentSessions()) {
+			const driver = this.drivers.get(persisted.session.provider)
+			if (!driver) continue
+			const snapshot = {
+				session: persisted.session,
+				driverState: persisted.driverState,
+			}
+			driver.restoreSession(snapshot)
+			this.sessions.set(persisted.session.id, { session: persisted.session, driver })
+		}
+	}
+
+	private persist(routed: RoutedSession) {
+		const snapshot = routed.driver.snapshotSession(routed.session.id)
+		if (!snapshot) return
+		routed.session = snapshot.session
+		stateStore.saveAgentSnapshot(snapshot)
+	}
+
 	getDriver(kind: AgentProviderKind): AgentDriver {
 		const driver = this.drivers.get(kind)
 		if (!driver) throw new Error(`Provider ${kind} is not configured`)
@@ -110,32 +132,74 @@ export class ProviderRegistry {
 	}
 
 	async start(kind: AgentProviderKind, options: StartSessionOptions): Promise<AgentSession> {
+		if (options.taskId) {
+			const task = stateStore.getTask(options.taskId)
+			if (!task) throw new Error(`Unknown task: ${options.taskId}`)
+			if (task.workspace !== options.workspace) {
+				throw new Error("Task workspace does not match agent workspace")
+			}
+		}
 		const driver = this.getDriver(kind)
 		const session = await driver.startSession(options)
-		this.sessions.set(session.id, { session, driver })
+		const routed = { session, driver }
+		this.sessions.set(session.id, routed)
+		this.persist(routed)
+		stateStore.appendAgentEvent(session.id, { type: "session.started", session })
 		return session
 	}
 
-	getSession(id: string): AgentSession | null {
-		return this.sessions.get(id)?.session ?? null
+	listSessions(workspace?: string): AgentSession[] {
+		return stateStore.listAgentSessions(workspace).map((item) => item.session)
 	}
 
-	events(id: string, message: string): AsyncIterable<AgentEvent> {
+	getSession(id: string): AgentSession | null {
+		return this.sessions.get(id)?.session ?? stateStore.getAgentSession(id)?.session ?? null
+	}
+
+	getEvents(id: string, afterSequence = 0) {
+		return stateStore.listAgentEvents(id, afterSequence)
+	}
+
+	async *events(id: string, message: string): AsyncIterable<AgentEvent> {
 		const routed = this.sessions.get(id)
-		if (!routed) throw new Error(`Unknown agent session: ${id}`)
-		return routed.driver.sendMessage(id, message)
+		if (!routed)
+			throw new Error(`Agent session ${id} cannot be restored with current provider config`)
+		let lastSnapshotAt = 0
+		let capturedProviderProgress = false
+		try {
+			for await (const event of routed.driver.sendMessage(id, message)) {
+				stateStore.appendAgentEvent(id, event)
+				const now = Date.now()
+				const shouldSnapshot =
+					event.type === "state.changed" ||
+					!capturedProviderProgress ||
+					now - lastSnapshotAt >= 1_000
+				if (shouldSnapshot) {
+					this.persist(routed)
+					lastSnapshotAt = now
+					if (event.type !== "state.changed") capturedProviderProgress = true
+				}
+				yield event
+			}
+		} finally {
+			this.persist(routed)
+		}
 	}
 
 	async interrupt(id: string): Promise<void> {
 		const routed = this.sessions.get(id)
 		if (!routed) throw new Error(`Unknown agent session: ${id}`)
 		await routed.driver.interrupt(id)
+		this.persist(routed)
+		stateStore.appendAgentEvent(id, { type: "state.changed", state: "interrupted" })
 	}
 
 	async resume(id: string): Promise<void> {
 		const routed = this.sessions.get(id)
 		if (!routed) throw new Error(`Unknown agent session: ${id}`)
 		await routed.driver.resume(id)
+		this.persist(routed)
+		stateStore.appendAgentEvent(id, { type: "state.changed", state: routed.session.state })
 	}
 }
 

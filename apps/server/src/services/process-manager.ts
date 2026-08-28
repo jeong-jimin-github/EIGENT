@@ -1,20 +1,10 @@
 /** Long-running command process manager for EIGENT. */
 import { randomUUID } from "node:crypto"
 import os from "node:os"
+import type { ManagedProcessInfo } from "./process-types"
+import { stateStore } from "./state"
 
-export type ManagedProcessState = "running" | "exited" | "killed" | "failed"
-
-export interface ManagedProcessInfo {
-	id: string
-	command: string
-	cwd: string
-	pid: number | null
-	state: ManagedProcessState
-	exitCode: number | null
-	startedAt: number
-	endedAt: number | null
-	output: string
-}
+export type { ManagedProcessInfo, ManagedProcessState } from "./process-types"
 
 interface ManagedProcess extends ManagedProcessInfo {
 	process: ReturnType<typeof Bun.spawn> | null
@@ -22,6 +12,11 @@ interface ManagedProcess extends ManagedProcessInfo {
 
 const processes = new Map<string, ManagedProcess>()
 const MAX_OUTPUT_CHARS = 256 * 1024
+
+stateStore.markRunningProcessesOrphaned()
+for (const info of stateStore.listManagedProcesses()) {
+	processes.set(info.id, { ...info, process: null })
+}
 
 function shellCommand(command: string): string[] {
 	if (process.platform === "win32") {
@@ -35,6 +30,7 @@ function appendOutput(entry: ManagedProcess, text: string) {
 	if (entry.output.length > MAX_OUTPUT_CHARS) {
 		entry.output = entry.output.slice(entry.output.length - MAX_OUTPUT_CHARS)
 	}
+	stateStore.saveManagedProcess(snapshot(entry))
 }
 
 async function consumeStream(entry: ManagedProcess, stream: ReadableStream<Uint8Array> | null) {
@@ -54,12 +50,17 @@ function snapshot(entry: ManagedProcess): ManagedProcessInfo {
 	return { ...info }
 }
 
-export function startManagedProcess(command: string, cwd: string): ManagedProcessInfo {
+export function startManagedProcess(
+	command: string,
+	cwd: string,
+	taskId?: string,
+): ManagedProcessInfo {
 	const id = randomUUID()
 	const entry: ManagedProcess = {
 		id,
 		command,
 		cwd,
+		taskId,
 		pid: null,
 		state: "running",
 		exitCode: null,
@@ -69,6 +70,7 @@ export function startManagedProcess(command: string, cwd: string): ManagedProces
 		process: null,
 	}
 	processes.set(id, entry)
+	stateStore.saveManagedProcess(snapshot(entry))
 
 	try {
 		const child = Bun.spawn({
@@ -81,6 +83,7 @@ export function startManagedProcess(command: string, cwd: string): ManagedProces
 		})
 		entry.process = child
 		entry.pid = child.pid
+		stateStore.saveManagedProcess(snapshot(entry))
 		void consumeStream(entry, child.stdout as ReadableStream<Uint8Array>)
 		void consumeStream(entry, child.stderr as ReadableStream<Uint8Array>)
 		void child.exited
@@ -89,17 +92,20 @@ export function startManagedProcess(command: string, cwd: string): ManagedProces
 				entry.state = entry.state === "killed" ? "killed" : code === 0 ? "exited" : "failed"
 				entry.endedAt = Date.now()
 				entry.process = null
+				stateStore.saveManagedProcess(snapshot(entry))
 			})
 			.catch((err) => {
 				appendOutput(entry, `\n${err instanceof Error ? err.message : String(err)}\n`)
 				entry.state = "failed"
 				entry.endedAt = Date.now()
 				entry.process = null
+				stateStore.saveManagedProcess(snapshot(entry))
 			})
 	} catch (err) {
 		entry.state = "failed"
 		entry.endedAt = Date.now()
 		appendOutput(entry, err instanceof Error ? err.message : String(err))
+		stateStore.saveManagedProcess(snapshot(entry))
 	}
 
 	return snapshot(entry)
@@ -127,6 +133,7 @@ export function killManagedProcess(id: string): boolean {
 	const entry = processes.get(id)
 	if (!entry?.process || entry.state !== "running") return false
 	entry.state = "killed"
+	stateStore.saveManagedProcess(snapshot(entry))
 	entry.process.kill()
 	return true
 }
@@ -136,6 +143,7 @@ export function clearFinishedProcesses(): number {
 	for (const [id, entry] of processes) {
 		if (entry.state !== "running") {
 			processes.delete(id)
+			stateStore.deleteManagedProcess(id)
 			removed += 1
 		}
 	}

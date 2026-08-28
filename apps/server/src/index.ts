@@ -7,7 +7,9 @@ import git from "./routes/git"
 import health from "./routes/health"
 import modelState from "./routes/model-state"
 import processes from "./routes/processes"
+import recovery from "./routes/recovery"
 import servers from "./routes/servers"
+import tasks from "./routes/tasks"
 import workspace from "./routes/workspace"
 import { ensureSingleServer } from "./services/server-manager"
 import { createTerminalSession, type TerminalSession } from "./services/terminal-session"
@@ -86,8 +88,10 @@ const routes = app
 	.route("/api/agents", agents)
 	.route("/api/git", git)
 	.route("/api/processes", processes)
+	.route("/api/recovery", recovery)
 	.route("/api/workspace", workspace)
 	.route("/api/servers", servers)
+	.route("/api/tasks", tasks)
 	.route("/api/model-state", modelState)
 	.route("/health", health)
 
