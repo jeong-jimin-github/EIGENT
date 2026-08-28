@@ -1,5 +1,7 @@
 /** Interactive provider-auth command manager. Output is polled by the web UI. */
 import { randomUUID } from "node:crypto"
+import { existsSync } from "node:fs"
+import path from "node:path"
 
 export interface ProviderAuthTask {
 	id: string
@@ -39,8 +41,26 @@ function snapshot(task: InternalTask): ProviderAuthTask {
 	return { ...publicTask }
 }
 
+function resolveProviderExecutable(provider: "codex" | "claude"): string | null {
+	const name = provider === "codex" ? "codex" : "claude"
+	const configured = provider === "codex" ? process.env.EIGENT_CODEX_EXECUTABLE?.trim() : undefined
+	if (!configured) return Bun.which(name)
+	return Bun.which(configured) ?? (existsSync(configured) ? configured : null)
+}
+
+function providerEnvironment(
+	provider: "codex" | "claude",
+	executable: string,
+): NodeJS.ProcessEnv | undefined {
+	if (provider !== "codex" || !path.isAbsolute(executable)) return undefined
+	return {
+		...process.env,
+		PATH: [path.dirname(executable), process.env.PATH].filter(Boolean).join(path.delimiter),
+	}
+}
+
 export function startProviderAuth(provider: "codex" | "claude"): ProviderAuthTask {
-	const executable = provider === "codex" ? Bun.which("codex") : Bun.which("claude")
+	const executable = resolveProviderExecutable(provider)
 	if (!executable)
 		throw new Error(`${provider === "codex" ? "Codex CLI" : "Claude Code"} is not installed`)
 	const cmd =
@@ -57,7 +77,13 @@ export function startProviderAuth(provider: "codex" | "claude"): ProviderAuthTas
 	}
 	tasks.set(task.id, task)
 
-	const child = Bun.spawn({ cmd, stdin: "pipe", stdout: "pipe", stderr: "pipe" })
+	const child = Bun.spawn({
+		cmd,
+		env: providerEnvironment(provider, executable),
+		stdin: "pipe",
+		stdout: "pipe",
+		stderr: "pipe",
+	})
 	task.process = child
 	void pump(task, child.stdout as ReadableStream<Uint8Array>)
 	void pump(task, child.stderr as ReadableStream<Uint8Array>)

@@ -1,5 +1,7 @@
 /** OpenAI Codex CLI driver for EIGENT. */
 import { randomUUID } from "node:crypto"
+import { existsSync } from "node:fs"
+import path from "node:path"
 import type {
 	AgentDriver,
 	AgentEvent,
@@ -21,6 +23,22 @@ interface CodexSession extends AgentSession {
 	providerSessionId?: string
 	yolo: boolean
 	systemPrompt?: string
+}
+
+function resolveExecutable(executable: string): string | null {
+	return (
+		Bun.which(executable) ??
+		(path.isAbsolute(executable) && existsSync(executable) ? executable : null)
+	)
+}
+
+function executableEnvironment(executable: string): NodeJS.ProcessEnv | undefined {
+	if (!path.isAbsolute(executable)) return undefined
+	const executableDir = path.dirname(executable)
+	return {
+		...process.env,
+		PATH: [executableDir, process.env.PATH].filter(Boolean).join(path.delimiter),
+	}
 }
 
 interface CodexJsonEvent {
@@ -168,15 +186,17 @@ export class CodexDriver implements AgentDriver {
 		const common = ["--json", "--skip-git-repo-check"]
 		if (session.model !== CLI_DEFAULT_MODEL) common.push("-m", session.model)
 		if (session.yolo) common.push("--dangerously-bypass-approvals-and-sandbox")
+		const executable = resolveExecutable(this.executable) ?? this.executable
 		const args = session.providerSessionId
-			? [this.executable, "exec", "resume", ...common, session.providerSessionId, prompt]
-			: [this.executable, "exec", ...common, "-C", session.workspace, prompt]
+			? [executable, "exec", "resume", ...common, session.providerSessionId, prompt]
+			: [executable, "exec", ...common, "-C", session.workspace, prompt]
 
 		session.state = "running"
 		yield { type: "state.changed", state: "running" }
 		const proc = Bun.spawn({
 			cmd: args,
 			cwd: session.workspace,
+			env: executableEnvironment(executable),
 			stdin: "ignore",
 			stdout: "pipe",
 			stderr: "pipe",
@@ -277,12 +297,13 @@ export class CodexDriver implements AgentDriver {
 	}
 
 	async getStatus(): Promise<AgentStatus> {
-		const executable = Bun.which(this.executable)
+		const executable = resolveExecutable(this.executable)
 		if (!executable)
 			return { available: false, authenticated: false, detail: "Codex CLI is not installed" }
 		try {
 			const proc = Bun.spawn({
 				cmd: [executable, "login", "status"],
+				env: executableEnvironment(executable),
 				stdout: "pipe",
 				stderr: "pipe",
 			})

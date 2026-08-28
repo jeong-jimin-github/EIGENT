@@ -78,7 +78,7 @@ ANTHROPIC_API_KEY=...
 ANTHROPIC_MODEL=...
 ```
 
-Codex and Claude Code use their CLI authentication flows instead of storing subscription credentials in the repository.
+Codex and Claude Code use their CLI authentication flows instead of storing subscription credentials in the repository. For Codex installation, headless device auth, systemd PATH configuration, and E2E checks, see [`docs/CODEX.md`](docs/CODEX.md).
 
 ## Repository structure
 

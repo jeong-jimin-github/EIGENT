@@ -41,6 +41,7 @@ function buildDrivers(): Map<AgentProviderKind, AgentDriver> {
 	drivers.set(
 		"codex",
 		new CodexDriver({
+			executable: process.env.EIGENT_CODEX_EXECUTABLE,
 			models: csv(process.env.EIGENT_CODEX_MODELS),
 		}),
 	)
