@@ -4,11 +4,13 @@ EIGENT deliberately keeps its authenticated agent execution permissive (YOLO). T
 
 ## Supported baseline
 
-The CI production lane targets Ubuntu on GitHub Actions with Bun `1.3.8`. On a clean Ubuntu host install the native build prerequisites used by `node-pty` and Git:
+The CI production lane targets Ubuntu on GitHub Actions with Bun `1.3.8` and Node.js `22`. EIGENT runs under Bun, but Linux PTY sessions use a small Node.js bridge because `node-pty` is a native Node addon and Bun 1.3.8 can terminate the spawned PTY shell before command output is delivered. On a clean Ubuntu host install Node.js 22 plus the native build prerequisites used by `node-pty` and Git:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl git build-essential python3 pkg-config nginx apache2-utils
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
 curl -fsSL https://bun.sh/install | bash -s -- bun-v1.3.8
 sudo install -m 0755 "$HOME/.bun/bin/bun" /usr/local/bin/bun
 ```
@@ -18,6 +20,8 @@ For the managed graphical desktop, also install the packages documented in [`DES
 Build and validate the production web/server bundle:
 
 ```bash
+node --version   # v22.x
+bun --version    # 1.3.8
 bun install --frozen-lockfile
 bun run check-types
 bun run build:web
