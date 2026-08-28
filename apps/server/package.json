@@ -16,10 +16,11 @@
 	},
 	"scripts": {
 		"dev": "bun run --hot src/index.ts",
-		"build": "tsc && bun build src/index.ts --outdir dist --target bun --external node-pty",
+		"build": "tsc && bun build src/index.ts --outdir dist --target bun --external node-pty && node -e \"require('node:fs').copyFileSync('src/browser-worker.mjs','dist/browser-worker.mjs')\"",
 		"build:types": "tsc",
 		"check-types": "tsgo --noEmit",
-		"start": "bun run dist/index.js"
+		"start": "bun run dist/index.js",
+		"browser:mcp": "bun run src/browser-mcp.ts"
 	},
 	"dependencies": {
 		"@opencode-ai/sdk": "^1.2.1",
@@ -31,7 +32,10 @@
 		"@eigent/agent-claude": "workspace:*",
 		"@eigent/agent-openai": "workspace:*",
 		"@eigent/agent-anthropic": "workspace:*",
-		"@eigent/agent-antigravity": "workspace:*"
+		"@eigent/agent-antigravity": "workspace:*",
+		"@modelcontextprotocol/sdk": "^1.26.0",
+		"playwright-core": "^1.55.0",
+		"zod": "^4.3.6"
 	},
 	"devDependencies": {
 		"@types/bun": "^1.2.14",
