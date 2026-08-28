@@ -1,6 +1,7 @@
 import { Hono } from "hono"
 import { stateStore } from "../services/state"
 import type { PersistentTaskState } from "../services/state-store"
+import { assertWorkspaceAllowed } from "../services/workspace-policy"
 
 const TASK_STATES = new Set<PersistentTaskState>([
 	"pending",
@@ -13,13 +14,27 @@ const TASK_STATES = new Set<PersistentTaskState>([
 ])
 
 const app = new Hono()
-	.get("/", (c) => c.json({ tasks: stateStore.listTasks(c.req.query("workspace")) }, 200))
+	.get("/", (c) => {
+		const requestedWorkspace = c.req.query("workspace")
+		if (!requestedWorkspace) return c.json({ tasks: stateStore.listTasks() }, 200)
+		try {
+			const workspace = assertWorkspaceAllowed(requestedWorkspace)
+			return c.json({ tasks: stateStore.listTasks(workspace) }, 200)
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : String(error) }, 400)
+		}
+	})
 	.post("/", async (c) => {
 		const body = (await c.req.json()) as { workspace?: string; title?: string }
 		if (!body.workspace || !body.title?.trim()) {
 			return c.json({ error: "workspace and title are required" }, 400)
 		}
-		return c.json(stateStore.createTask(body.workspace, body.title.trim()), 201)
+		try {
+			const workspace = assertWorkspaceAllowed(body.workspace)
+			return c.json(stateStore.createTask(workspace, body.title.trim()), 201)
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : String(error) }, 400)
+		}
 	})
 	.get("/:id", (c) => {
 		const task = stateStore.getTask(c.req.param("id"))

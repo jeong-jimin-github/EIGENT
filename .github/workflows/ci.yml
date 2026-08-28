@@ -85,3 +85,42 @@ jobs:
 
       - name: Build all packages
         run: bun run build
+
+  linux-production:
+    name: Linux Production Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.8"
+
+      - name: Install Ubuntu native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 pkg-config git
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install dependencies (including native node-pty)
+        run: bun install --frozen-lockfile
+
+      - name: Type check
+        run: bun run check-types
+
+      - name: Build production web and server
+        run: bun run build:web
+
+      - name: Linux filesystem, security, and native PTY tests
+        run: >-
+          bun test
+          apps/server/src/services/security-policy.test.ts
+          apps/server/src/services/workspace-service.test.ts
+          apps/server/src/services/terminal-session.linux.test.ts
+
+      - name: Production server smoke test
+        run: bun run scripts/linux-production-smoke.ts

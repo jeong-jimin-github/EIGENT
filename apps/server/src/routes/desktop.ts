@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import { type ComputerAction, desktopRuntime } from "../services/desktop-runtime"
+import { maxUploadBytes } from "../services/security-policy"
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
@@ -43,6 +44,9 @@ const app = new Hono()
 			const body = await c.req.parseBody()
 			const upload = body.file
 			if (!(upload instanceof File)) return c.json({ error: "file is required" }, 400)
+			if (upload.size > maxUploadBytes()) {
+				return c.json({ error: `file exceeds ${maxUploadBytes()} byte upload limit` }, 413)
+			}
 			const bytes = new Uint8Array(await upload.arrayBuffer())
 			const storedPath = desktopRuntime.storeSharedFile(upload.name, bytes)
 			return c.json({ path: storedPath, name: upload.name, size: bytes.byteLength })

@@ -10,6 +10,7 @@ import {
 	writeManagedProcess,
 } from "../services/process-manager"
 import { stateStore } from "../services/state"
+import { assertWorkspaceAllowed } from "../services/workspace-policy"
 
 const app = new Hono()
 	.get("/", (c) => c.json({ hostname: HOSTNAME, processes: listManagedProcesses() }, 200))
@@ -17,6 +18,11 @@ const app = new Hono()
 		const body = (await c.req.json()) as { command?: string; cwd?: string; taskId?: string }
 		if (!body.command?.trim() || !body.cwd) {
 			return c.json({ error: "command and cwd are required" }, 400)
+		}
+		try {
+			assertWorkspaceAllowed(body.cwd, "process cwd")
+		} catch (error) {
+			return c.json({ error: error instanceof Error ? error.message : String(error) }, 400)
 		}
 		if (body.taskId) {
 			const task = stateStore.getTask(body.taskId)

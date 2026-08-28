@@ -1,5 +1,5 @@
 import http from "node:http"
-import { existsSync, mkdirSync } from "node:fs"
+import { existsSync, mkdirSync, realpathSync } from "node:fs"
 import path from "node:path"
 import { chromium } from "playwright-core"
 
@@ -159,8 +159,41 @@ async function runWithDialogSignal(page, action) {
 	if (outcome.kind === "error") throw outcome.error
 	return outcome.value
 }
+function pathInside(root, candidate) {
+	const relative = path.relative(root, candidate)
+	return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+}
+function canonicalizePotentialPath(input) {
+	const absolute = path.resolve(input)
+	let probe = absolute
+	const suffix = []
+	while (true) {
+		try { return path.resolve(realpathSync.native(probe), ...suffix) }
+		catch {
+			const parent = path.dirname(probe)
+			if (parent === probe) return absolute
+			suffix.unshift(path.basename(probe))
+			probe = parent
+		}
+	}
+}
 function uploadPath(input) {
-	return path.isAbsolute(input) ? path.resolve(input) : path.resolve(uploadDir, input)
+	const candidate = path.isAbsolute(input) ? path.resolve(input) : path.resolve(uploadDir, input)
+	const configuredRoots = (process.env.EIGENT_WORKSPACE_ROOTS ?? "")
+		.split(",")
+		.map((value) => value.trim())
+		.filter(Boolean)
+		.map(canonicalizePotentialPath)
+	const allowedRoots = path.isAbsolute(input) && configuredRoots.length === 0
+		? []
+		: [canonicalizePotentialPath(uploadDir), ...configuredRoots]
+	if (allowedRoots.length > 0) {
+		const canonicalCandidate = canonicalizePotentialPath(candidate)
+		if (!allowedRoots.some((root) => pathInside(root, canonicalCandidate))) {
+			throw new Error("Upload file is outside allowed workspace roots")
+		}
+	}
+	return candidate
 }
 function downloadPath(filename) {
 	return path.join(downloadDir, path.basename(filename))

@@ -1,0 +1,47 @@
+import { realpathSync } from "node:fs"
+import path from "node:path"
+
+function splitCsv(value: string | undefined): string[] {
+	return (value ?? "")
+		.split(",")
+		.map((item) => item.trim())
+		.filter(Boolean)
+}
+
+export function pathInside(root: string, candidate: string): boolean {
+	const relative = path.relative(root, candidate)
+	return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+}
+
+/** Resolve symlinks for the existing prefix while still supporting not-yet-created paths. */
+export function canonicalizePotentialPath(input: string): string {
+	const absolute = path.resolve(input)
+	let probe = absolute
+	const suffix: string[] = []
+
+	while (true) {
+		try {
+			const resolved = realpathSync.native(probe)
+			return path.resolve(resolved, ...suffix)
+		} catch {
+			const parent = path.dirname(probe)
+			if (parent === probe) return absolute
+			suffix.unshift(path.basename(probe))
+			probe = parent
+		}
+	}
+}
+
+export function configuredWorkspaceRoots(): string[] {
+	return splitCsv(process.env.EIGENT_WORKSPACE_ROOTS).map(canonicalizePotentialPath)
+}
+
+export function assertWorkspaceAllowed(input: string, label = "workspace"): string {
+	if (!path.isAbsolute(input)) throw new Error(`${label} must be an absolute path`)
+	const candidate = canonicalizePotentialPath(input)
+	const roots = configuredWorkspaceRoots()
+	if (roots.length > 0 && !roots.some((root) => pathInside(root, candidate))) {
+		throw new Error(`${label} is outside EIGENT_WORKSPACE_ROOTS`)
+	}
+	return input
+}

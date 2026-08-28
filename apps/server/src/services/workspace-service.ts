@@ -1,6 +1,7 @@
 /** Workspace filesystem operations for the EIGENT backend. */
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { assertWorkspaceAllowed, canonicalizePotentialPath, pathInside } from "./workspace-policy"
 
 export interface WorkspaceEntry {
 	name: string
@@ -13,16 +14,18 @@ export interface WorkspaceEntry {
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024
 
 function normalizeRoot(root: string): string {
-	if (!path.isAbsolute(root)) throw new Error("workspace root must be an absolute path")
-	return path.resolve(root)
+	return assertWorkspaceAllowed(root, "workspace root")
 }
 
 function resolveInsideRoot(root: string, relativePath = ""): string {
 	const normalizedRoot = normalizeRoot(root)
 	const candidate = path.resolve(normalizedRoot, relativePath)
-	if (candidate === normalizedRoot) return candidate
-	if (!candidate.startsWith(`${normalizedRoot}${path.sep}`)) {
-		throw new Error("path escapes workspace root")
+	if (!pathInside(normalizedRoot, candidate)) throw new Error("path escapes workspace root")
+
+	const canonicalRoot = canonicalizePotentialPath(normalizedRoot)
+	const canonicalCandidate = canonicalizePotentialPath(candidate)
+	if (!pathInside(canonicalRoot, canonicalCandidate)) {
+		throw new Error("path escapes workspace root through a symlink")
 	}
 	return candidate
 }
@@ -37,7 +40,7 @@ export async function listWorkspace(root: string, relativePath = ""): Promise<Wo
 	const results = await Promise.all(
 		entries.map(async (entry) => {
 			const absolute = path.join(target, entry.name)
-			const info = await stat(absolute)
+			const info = await lstat(absolute)
 			const type: WorkspaceEntry["type"] = entry.isDirectory()
 				? "directory"
 				: entry.isFile()

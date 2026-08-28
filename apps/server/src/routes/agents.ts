@@ -7,6 +7,7 @@ import { cancelProviderAuth, getProviderAuth, startProviderAuth } from "../servi
 import { providerRegistry } from "../services/provider-registry"
 import { stateStore } from "../services/state"
 import { webPushService } from "../services/web-push"
+import { assertWorkspaceAllowed } from "../services/workspace-policy"
 
 function errorMessage(err: unknown): string {
 	return err instanceof Error ? err.message : String(err)
@@ -34,9 +35,16 @@ const app = new Hono()
 			? c.json({ cancelled: true }, 200)
 			: c.json({ error: "auth task is not running" }, 409),
 	)
-	.get("/sessions", (c) =>
-		c.json({ sessions: providerRegistry.listSessions(c.req.query("workspace")) }, 200),
-	)
+	.get("/sessions", (c) => {
+		const requestedWorkspace = c.req.query("workspace")
+		if (!requestedWorkspace) return c.json({ sessions: providerRegistry.listSessions() }, 200)
+		try {
+			const workspace = assertWorkspaceAllowed(requestedWorkspace)
+			return c.json({ sessions: providerRegistry.listSessions(workspace) }, 200)
+		} catch (err) {
+			return c.json({ error: errorMessage(err) }, 400)
+		}
+	})
 	.post("/sessions", async (c) => {
 		const body = (await c.req.json()) as {
 			provider?: AgentProviderKind
@@ -51,8 +59,9 @@ const app = new Hono()
 			return c.json({ error: "provider, workspace and model are required" }, 400)
 		}
 		try {
+			const workspace = assertWorkspaceAllowed(body.workspace)
 			const session = await providerRegistry.start(body.provider, {
-				workspace: body.workspace,
+				workspace,
 				taskId: body.taskId,
 				model: body.model,
 				yolo: body.yolo ?? true,

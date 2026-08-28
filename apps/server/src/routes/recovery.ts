@@ -3,6 +3,7 @@ import { Hono } from "hono"
 import { agentRuns } from "../services/agent-runs"
 import { providerRegistry } from "../services/provider-registry"
 import { stateStore } from "../services/state"
+import { assertWorkspaceAllowed } from "../services/workspace-policy"
 
 function insideWorkspace(workspace: string, candidate: string): boolean {
 	const relative = path.relative(path.resolve(workspace), path.resolve(candidate))
@@ -10,8 +11,14 @@ function insideWorkspace(workspace: string, candidate: string): boolean {
 }
 
 const app = new Hono().get("/", (c) => {
-	const workspace = c.req.query("workspace")
-	if (!workspace) return c.json({ error: "workspace is required" }, 400)
+	const requestedWorkspace = c.req.query("workspace")
+	if (!requestedWorkspace) return c.json({ error: "workspace is required" }, 400)
+	let workspace: string
+	try {
+		workspace = assertWorkspaceAllowed(requestedWorkspace)
+	} catch (error) {
+		return c.json({ error: error instanceof Error ? error.message : String(error) }, 400)
+	}
 
 	const sessions = providerRegistry.listSessions(workspace).map((session) => ({
 		session,

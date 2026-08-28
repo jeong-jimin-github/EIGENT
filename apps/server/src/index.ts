@@ -17,21 +17,68 @@ import tasks from "./routes/tasks"
 import workspace from "./routes/workspace"
 import { browserRuntime } from "./services/browser-runtime"
 import { desktopRuntime } from "./services/desktop-runtime"
+import {
+	consumeMutationRateLimit,
+	isAllowedHost,
+	isAllowedOrigin,
+	maxRequestBytes,
+} from "./services/security-policy"
 import { ensureSingleServer } from "./services/server-manager"
 import { createTerminalSession, type TerminalSession } from "./services/terminal-session"
+import { assertWorkspaceAllowed } from "./services/workspace-policy"
 
 const app = new Hono()
 const { upgradeWebSocket, websocket } = createBunWebSocket()
 
+app.use("/api/*", async (c, next) => {
+	const host = c.req.header("host")
+	if (!isAllowedHost(host)) return c.json({ error: "Host is not allowed" }, 403)
+	if (!isAllowedOrigin(c.req.header("origin"), host)) {
+		return c.json({ error: "Origin is not allowed" }, 403)
+	}
+
+	const declaredBytes = Number(c.req.header("content-length") ?? "0")
+	if (Number.isFinite(declaredBytes) && declaredBytes > maxRequestBytes()) {
+		return c.json({ error: `request exceeds ${maxRequestBytes()} byte limit` }, 413)
+	}
+
+	if (!["GET", "HEAD", "OPTIONS"].includes(c.req.method)) {
+		const rate = consumeMutationRateLimit()
+		if (!rate.allowed) {
+			c.header("Retry-After", String(rate.retryAfter))
+			return c.json({ error: "Mutation rate limit exceeded" }, 429)
+		}
+	}
+
+	await next()
+})
+
+app.use(
+	"/api/*",
+	cors({
+		origin: (origin) => {
+			const configured = process.env.EIGENT_ALLOWED_ORIGINS
+			if (configured) {
+				const allowed = configured.split(",").map((value) => value.trim())
+				return allowed.includes(origin) ? origin : ""
+			}
+			return origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")
+				? origin
+				: ""
+		},
+	}),
+)
+
 app.get(
 	"/api/terminal/ws",
 	upgradeWebSocket((c) => {
-		const cwd = c.req.query("cwd") || process.env.HOME || process.cwd()
+		const requestedCwd = c.req.query("cwd") || process.env.HOME || process.cwd()
 		let terminal: TerminalSession | null = null
 
 		return {
 			onOpen(_event, ws) {
 				try {
+					const cwd = assertWorkspaceAllowed(requestedCwd, "terminal cwd")
 					terminal = createTerminalSession({
 						cwd,
 						onData: (data) => ws.send(data),
@@ -226,22 +273,6 @@ app.get(
 	}),
 )
 
-app.use(
-	"/api/*",
-	cors({
-		origin: (origin) => {
-			const configured = process.env.EIGENT_ALLOWED_ORIGINS
-			if (configured) {
-				const allowed = configured.split(",").map((value) => value.trim())
-				return allowed.includes(origin) ? origin : ""
-			}
-			return origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")
-				? origin
-				: ""
-		},
-	}),
-)
-
 const routes = app
 	.route("/api/agents", agents)
 	.route("/api/browser", browser)
@@ -327,6 +358,7 @@ ensureSingleServer()
 export default {
 	hostname,
 	port,
+	maxRequestBodySize: maxRequestBytes(),
 	fetch: app.fetch,
 	websocket,
 }

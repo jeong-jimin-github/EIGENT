@@ -78,7 +78,7 @@ ANTHROPIC_API_KEY=...
 ANTHROPIC_MODEL=...
 ```
 
-Codex and Claude Code use their CLI authentication flows instead of storing subscription credentials in the repository. For Codex installation, headless device auth, systemd PATH configuration, and E2E checks, see [`docs/CODEX.md`](docs/CODEX.md).
+Codex and Claude Code use their CLI authentication flows instead of storing subscription credentials in the repository. For Codex installation, headless device auth, systemd PATH configuration, and E2E checks, see [`docs/CODEX.md`](docs/CODEX.md). Claude Code stream/E2E diagnostics are documented in [`docs/CLAUDE.md`](docs/CLAUDE.md).
 
 ## Repository structure
 
@@ -95,7 +95,7 @@ packages/ui/               Shared UI components
 
 ## Security note
 
-EIGENT is intended as a personal, self-hosted development environment. Some agent modes deliberately support highly permissive execution. Do not expose an unsecured deployment directly to the public Internet. Authentication, network boundaries, process isolation, secret handling, and deployment hardening must be completed before relying on it in an untrusted environment.
+EIGENT is intended as a personal, self-hosted development environment. Some agent modes deliberately support highly permissive execution. Do not expose an unsecured deployment directly to the public Internet. For the hardened single-user Ubuntu perimeter, exact host/origin and workspace-root settings, HTTPS reverse proxy/Cloudflare Access examples, systemd isolation, size/rate limits, and the production checklist, see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Upstream
 
