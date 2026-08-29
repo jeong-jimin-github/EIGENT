@@ -1,6 +1,5 @@
-import { type ChildProcess, spawn } from "node:child_process"
+import type { ChildProcess } from "node:child_process"
 import { homedir } from "node:os"
-import path from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { dialog } from "electron"
 import type { LocalServerConfig } from "../preload/api"
@@ -8,6 +7,7 @@ import { getCredential } from "./credential-store"
 import { findFreePort } from "./find-free-port"
 import { createLogger } from "./logger"
 import { startNotificationWatcher, stopNotificationWatcher } from "./notification-watcher"
+import { spawnOpenCode } from "./opencode-cli"
 import { getListeningProcessOwner, isCurrentUser, isProcessAlive } from "./process-owner"
 import { readLockfile, removeLockfile, writeLockfile } from "./server-lockfile"
 import { getSettings } from "./settings-store"
@@ -304,11 +304,6 @@ async function spawnServer(
 	port: number,
 	config: LocalServerConfig,
 ): Promise<OpenCodeServer> {
-	// Build PATH with ~/.opencode/bin prepended so we find the opencode binary
-	const opencodeBinDir = path.join(homedir(), ".opencode", "bin")
-	const sep = process.platform === "win32" ? ";" : ":"
-	const augmentedPath = `${opencodeBinDir}${sep}${process.env.PATH ?? ""}`
-
 	// Build CLI args
 	const args = ["serve", `--hostname=${hostname}`, `--port=${port}`]
 
@@ -333,13 +328,11 @@ async function spawnServer(
 		port,
 		hasPassword: !!config.hasPassword,
 		mdns: !!config.mdns,
-		binDir: opencodeBinDir,
 	})
 
-	const proc = spawn("opencode", args, {
+	const proc = spawnOpenCode(args, {
 		cwd: homedir(),
 		stdio: "pipe",
-		env: { ...process.env, PATH: augmentedPath },
 	})
 
 	const url = `http://${hostname}:${port}`

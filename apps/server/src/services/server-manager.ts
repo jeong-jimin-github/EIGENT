@@ -1,3 +1,7 @@
+import fs from "node:fs"
+import { homedir } from "node:os"
+import path from "node:path"
+
 // ============================================================
 // Types
 // ============================================================
@@ -20,6 +24,41 @@ let singleServer: {
 const OPENCODE_PORT = 4101
 const OPENCODE_HOSTNAME = "127.0.0.1"
 
+function resolveOpenCodeExecutable(): string {
+	if (process.platform !== "win32") return "opencode"
+
+	const candidates = new Set<string>()
+	const home = process.env.USERPROFILE || process.env.HOME || homedir()
+	if (home) candidates.add(path.join(home, ".opencode", "bin", "opencode.exe"))
+	if (process.env.APPDATA) {
+		candidates.add(
+			path.join(process.env.APPDATA, "npm", "node_modules", "opencode-ai", "bin", "opencode.exe"),
+		)
+	}
+	for (const entry of (process.env.PATH ?? "").split(path.delimiter).filter(Boolean)) {
+		candidates.add(path.join(entry, "opencode.exe"))
+		candidates.add(path.join(entry, "node_modules", "opencode-ai", "bin", "opencode.exe"))
+	}
+	for (const candidate of candidates) {
+		try {
+			if (fs.statSync(candidate).isFile()) return candidate
+		} catch {
+			// Try the next candidate.
+		}
+	}
+	return "opencode.exe"
+}
+
+function openCodeEnvironment(): Record<string, string | undefined> {
+	const home = process.env.USERPROFILE || process.env.HOME || homedir()
+	return {
+		...process.env,
+		PATH: [path.join(home, ".opencode", "bin"), process.env.PATH]
+			.filter(Boolean)
+			.join(path.delimiter),
+	}
+}
+
 // ============================================================
 // Public API
 // ============================================================
@@ -41,16 +80,19 @@ export async function ensureSingleServer(): Promise<OpenCodeServer> {
 		return existing
 	}
 
-	// Start a new one
+	// Start the real executable directly. On Windows npm installs expose a
+	// .cmd shim that Bun/Node cannot safely execute without a shell.
 	const proc = Bun.spawn({
-		cmd: ["opencode", "serve", `--hostname=${OPENCODE_HOSTNAME}`, `--port=${OPENCODE_PORT}`],
-		cwd: process.env.HOME, // arbitrary cwd — directory param overrides per-request
+		cmd: [
+			resolveOpenCodeExecutable(),
+			"serve",
+			`--hostname=${OPENCODE_HOSTNAME}`,
+			`--port=${OPENCODE_PORT}`,
+		],
+		cwd: homedir(), // arbitrary cwd — directory param overrides per-request
 		stdout: "pipe",
 		stderr: "pipe",
-		env: {
-			...process.env,
-			PATH: `${process.env.HOME}/.opencode/bin:${process.env.PATH}`,
-		},
+		env: openCodeEnvironment(),
 	})
 
 	const url = `http://${OPENCODE_HOSTNAME}:${OPENCODE_PORT}`
