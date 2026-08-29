@@ -51,6 +51,7 @@ import {
 import { getOpenInTargets, openInTarget, setPreferredTarget } from "./open-in-targets"
 import { ensureServer, getServerUrl, restartServer, stopServer } from "./opencode-manager"
 import { getOpaqueWindows, getSettings, onSettingsChanged, updateSettings } from "./settings-store"
+import { exportServerBackup, importServerBackup } from "./server-backup"
 import {
 	checkForUpdates,
 	downloadUpdate,
@@ -425,6 +426,11 @@ export function registerIpcHandlers(): void {
 	ipcMain.handle("settings:get", () => getSettings())
 
 	ipcMain.handle("settings:update", (_, partial) => updateSettings(partial))
+
+	// --- Server backup / restore ---
+
+	ipcMain.handle("server-backup:export", withLogging("server-backup:export", exportServerBackup))
+	ipcMain.handle("server-backup:import", withLogging("server-backup:import", importServerBackup))
 
 	// --- Credential storage (safeStorage-backed) ---
 

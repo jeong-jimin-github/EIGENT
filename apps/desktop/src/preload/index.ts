@@ -52,6 +52,11 @@ contextBridge.exposeInMainWorld("palot", {
 		delete: (serverId: string) => ipcRenderer.invoke("credential:delete", serverId),
 	},
 
+	serverBackup: {
+		export: () => ipcRenderer.invoke("server-backup:export"),
+		import: () => ipcRenderer.invoke("server-backup:import"),
+	},
+
 	/** Test connectivity to a remote OpenCode server. Returns null on success or error message. */
 	testServerConnection: (url: string, username?: string, password?: string) =>
 		ipcRenderer.invoke("server:test-connection", url, username, password),

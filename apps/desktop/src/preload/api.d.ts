@@ -223,6 +223,17 @@ export interface CliInstallResult {
 	error?: string
 }
 
+export interface ServerBackupResult {
+	success: boolean
+	canceled?: boolean
+	path?: string
+	serverCount?: number
+	credentialCount?: number
+	sessionCount?: number
+	failedSessionCount?: number
+	error?: string
+}
+
 // ============================================================
 // Onboarding types
 // ============================================================
@@ -430,6 +441,11 @@ export interface PalotAPI {
 		get: (serverId: string) => Promise<string | null>
 		/** Delete a stored password. */
 		delete: (serverId: string) => Promise<void>
+	}
+
+	serverBackup: {
+		export: () => Promise<ServerBackupResult>
+		import: () => Promise<ServerBackupResult>
 	}
 
 	/** Test connectivity to a remote OpenCode server. Returns null on success or an error message. */

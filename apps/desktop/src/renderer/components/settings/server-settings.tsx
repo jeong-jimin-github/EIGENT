@@ -24,6 +24,7 @@ import {
 	CheckCircle2Icon,
 	ChevronRightIcon,
 	CircleAlertIcon,
+	DownloadIcon,
 	GlobeIcon,
 	Loader2Icon,
 	MonitorIcon,
@@ -34,6 +35,7 @@ import {
 	SettingsIcon,
 	TerminalIcon,
 	TrashIcon,
+	UploadIcon,
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { LocalServerConfig, RemoteServerConfig } from "../../../preload/api"
@@ -178,6 +180,9 @@ export function ServerSettings() {
 			{/* Local server configuration */}
 			<LocalServerSettings />
 
+			{/* Portable server/session backup */}
+			<ServerBackupSettings />
+
 			{/* Discovered servers (mDNS) */}
 			{unsavedDiscovered.length > 0 && (
 				<>
@@ -248,6 +253,117 @@ export function ServerSettings() {
 // ============================================================
 
 const isElectron = typeof window !== "undefined" && "palot" in window
+
+function ServerBackupSettings() {
+	const [busy, setBusy] = useState<"export" | "import" | null>(null)
+	const [status, setStatus] = useState<{ kind: "success" | "error"; message: string } | null>(null)
+
+	const handleExport = useCallback(async () => {
+		if (!isElectron) return
+		setBusy("export")
+		setStatus(null)
+		try {
+			const result = await window.palot.serverBackup.export()
+			if (result.canceled) return
+			if (!result.success) {
+				setStatus({ kind: "error", message: result.error ?? "Backup export failed." })
+				return
+			}
+			setStatus({
+				kind: "success",
+				message: `Exported ${result.serverCount ?? 0} server(s) and ${result.sessionCount ?? 0} session(s).`,
+			})
+		} catch (error) {
+			setStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) })
+		} finally {
+			setBusy(null)
+		}
+	}, [])
+
+	const handleImport = useCallback(async () => {
+		if (!isElectron) return
+		setBusy("import")
+		setStatus(null)
+		try {
+			const result = await window.palot.serverBackup.import()
+			if (result.canceled) return
+			if (!result.success) {
+				setStatus({ kind: "error", message: result.error ?? "Backup import failed." })
+				return
+			}
+			await window.palot.relaunch()
+		} catch (error) {
+			setStatus({ kind: "error", message: error instanceof Error ? error.message : String(error) })
+		} finally {
+			setBusy(null)
+		}
+	}, [])
+
+	if (!isElectron) return null
+
+	return (
+		<>
+			<div>
+				<h3 className="flex items-center gap-2 text-base font-semibold">
+					<SaveIcon aria-hidden="true" className="size-4" />
+					Backup & Restore
+				</h3>
+				<p className="mt-1 text-sm text-muted-foreground">
+					Move server settings, authentication, and local OpenCode chat sessions between machines.
+				</p>
+				<p className="mt-2 flex max-w-2xl items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
+					<CircleAlertIcon aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+					<span>
+						Backup files contain plaintext server passwords, OpenCode provider credentials, and full
+						chat transcripts. Store them securely and only import files you trust.
+					</span>
+				</p>
+			</div>
+
+			<SettingsSection>
+				<SettingsRow
+					label="Export backup"
+					description="Save server configuration, credentials, provider authentication, and local sessions to one JSON file."
+				>
+					<Button variant="outline" size="sm" disabled={busy !== null} onClick={handleExport}>
+						{busy === "export" ? (
+							<Loader2Icon aria-hidden="true" className="size-3.5 animate-spin" />
+						) : (
+							<DownloadIcon aria-hidden="true" className="size-3.5" />
+						)}
+						Export
+					</Button>
+				</SettingsRow>
+
+				<SettingsRow
+					label="Import backup"
+					description="Restore the backup and restart EIGENT so the imported connection settings take effect."
+				>
+					<Button variant="outline" size="sm" disabled={busy !== null} onClick={handleImport}>
+						{busy === "import" ? (
+							<Loader2Icon aria-hidden="true" className="size-3.5 animate-spin" />
+						) : (
+							<UploadIcon aria-hidden="true" className="size-3.5" />
+						)}
+						Import & Restart
+					</Button>
+				</SettingsRow>
+			</SettingsSection>
+
+			{status && (
+				<p
+					className={
+						status.kind === "success"
+							? "text-sm text-green-600 dark:text-green-400"
+							: "text-sm text-destructive"
+					}
+				>
+					{status.message}
+				</p>
+			)}
+		</>
+	)
+}
 
 function LocalServerSettings() {
 	const { settings, updateSettings } = useSettings()
