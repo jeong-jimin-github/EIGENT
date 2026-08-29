@@ -347,6 +347,9 @@ export function getProjectClient(directory: string): OpencodeClient | null {
 		}
 	}
 
+	// Empty directory is the explicit No Project scope. Use the base client.
+	if (!directory) return connection.baseClient
+
 	let client = projectClients.get(directory)
 	if (!client) {
 		client = connectToServer(connection.url, {

@@ -122,7 +122,7 @@ export function SessionView({ sessionId }: SessionViewProps) {
 					// render, which in turn hits the fast-path above.
 					appStore.set(upsertSessionAtom, {
 						session,
-						directory: session.directory ?? "",
+						directory: projectSlug === "no-project" ? "" : session.directory ?? "",
 					})
 				} else {
 					// Confirmed not found — stop resolving so "not found" renders.
@@ -137,7 +137,7 @@ export function SessionView({ sessionId }: SessionViewProps) {
 		return () => {
 			cancelled = true
 		}
-	}, [sessionId]) // Only re-run when the session ID changes (not on every agent update)
+	}, [sessionId, projectSlug]) // Route scope matters for No Project session restoration.
 
 	// Resolve parent session name for breadcrumb navigation
 	const parentSessionName = useAtomValue(sessionNameFamily(selectedAgent?.parentId ?? ""))

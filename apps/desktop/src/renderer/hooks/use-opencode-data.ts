@@ -177,7 +177,7 @@ export function useProviders(directory: string | null): {
 	const { data, isLoading, error } = useQuery({
 		queryKey: queryKeys.providers(directory ?? ""),
 		queryFn: async (): Promise<ProvidersData> => {
-			const client = getProjectClient(directory!)
+			const client = getProjectClient(directory ?? "")
 			if (!client) throw new Error("No client for directory")
 			const result = await client.config.providers()
 			const raw = result.data as {
@@ -189,17 +189,17 @@ export function useProviders(directory: string | null): {
 				defaults: raw.default ?? {},
 			}
 		},
-		enabled: !!directory && connected && !isMockMode,
+		enabled: directory !== null && connected && !isMockMode,
 	})
 
 	const reload = useCallback(() => {
-		if (directory) {
+		if (directory !== null) {
 			queryClient.invalidateQueries({ queryKey: queryKeys.providers(directory) })
 		}
 	}, [directory, queryClient])
 
 	// Return mock data if in mock mode
-	if (isMockMode && directory) {
+	if (isMockMode && directory !== null) {
 		return {
 			data: MOCK_PROVIDERS as unknown as ProvidersData,
 			loading: false,
@@ -229,7 +229,7 @@ export function useConfig(directory: string | null): {
 	const { data, isLoading, error } = useQuery({
 		queryKey: queryKeys.config(directory ?? ""),
 		queryFn: async (): Promise<ConfigData> => {
-			const client = getProjectClient(directory!)
+			const client = getProjectClient(directory ?? "")
 			if (!client) throw new Error("No client for directory")
 			const result = await client.config.get()
 			const raw = result.data as SdkConfig
@@ -242,17 +242,17 @@ export function useConfig(directory: string | null): {
 					: undefined,
 			}
 		},
-		enabled: !!directory && connected && !isMockMode,
+		enabled: directory !== null && connected && !isMockMode,
 	})
 
 	const reload = useCallback(() => {
-		if (directory) {
+		if (directory !== null) {
 			queryClient.invalidateQueries({ queryKey: queryKeys.config(directory) })
 		}
 	}, [directory, queryClient])
 
 	// Return mock data if in mock mode
-	if (isMockMode && directory) {
+	if (isMockMode && directory !== null) {
 		return {
 			data: MOCK_CONFIG,
 			loading: false,
@@ -320,23 +320,23 @@ export function useOpenCodeAgents(directory: string | null): {
 	const { data, isLoading, error } = useQuery({
 		queryKey: queryKeys.agents(directory ?? ""),
 		queryFn: async (): Promise<SdkAgent[]> => {
-			const client = getProjectClient(directory!)
+			const client = getProjectClient(directory ?? "")
 			if (!client) throw new Error("No client for directory")
 			const result = await client.app.agents()
 			const raw = (result.data ?? []) as SdkAgent[]
 			return raw.filter((a) => (a.mode === "primary" || a.mode === "all") && !a.hidden)
 		},
-		enabled: !!directory && connected && !isMockMode,
+		enabled: directory !== null && connected && !isMockMode,
 	})
 
 	const reload = useCallback(() => {
-		if (directory) {
+		if (directory !== null) {
 			queryClient.invalidateQueries({ queryKey: queryKeys.agents(directory) })
 		}
 	}, [directory, queryClient])
 
 	// Return mock data if in mock mode
-	if (isMockMode && directory) {
+	if (isMockMode && directory !== null) {
 		return {
 			agents: MOCK_AGENTS as unknown as SdkAgent[],
 			loading: false,

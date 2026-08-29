@@ -180,6 +180,8 @@ function MentionTrigger({
 	return null
 }
 
+const NO_PROJECT_SLUG = "no-project"
+
 const SUGGESTIONS = [
 	{ icon: CodeIcon, key: "newChat.suggestionFeature" as const },
 	{ icon: FileTextIcon, key: "newChat.suggestionArchitecture" as const },
@@ -256,7 +258,8 @@ export function NewChat() {
 	// that the model they last used in this project sticks.
 	const projectModels = useAtomValue(projectModelsAtom)
 	const projectAgentRuntimes = useAtomValue(projectAgentRuntimesAtom)
-	const prevDirectoryRef = useRef<string>("")
+	const prevDirectoryRef = useRef<string | null>(null)
+	const userSelectedProjectRef = useRef(false)
 
 	useEffect(() => {
 		const controller = new AbortController()
@@ -268,9 +271,9 @@ export function NewChat() {
 		return () => controller.abort()
 	}, [])
 	useEffect(() => {
-		if (!selectedDirectory || selectedDirectory === prevDirectoryRef.current) return
+		if (selectedDirectory === prevDirectoryRef.current) return
 		prevDirectoryRef.current = selectedDirectory
-		const stored = projectModels[selectedDirectory]
+		const stored = selectedDirectory ? projectModels[selectedDirectory] : undefined
 		if (stored?.providerID && stored?.modelID) {
 			setSelectedModel(stored)
 			setSelectedVariant(stored.variant)
@@ -280,7 +283,11 @@ export function NewChat() {
 		}
 		// Restore the per-project agent preference (null = use config default)
 		setSelectedAgent(stored?.agent ?? null)
-		setRuntime(projectAgentRuntimes[selectedDirectory] ?? { provider: "opencode" })
+		setRuntime(
+			selectedDirectory
+				? projectAgentRuntimes[selectedDirectory] ?? { provider: "opencode" }
+				: { provider: "opencode" },
+		)
 	}, [selectedDirectory, projectModels, projectAgentRuntimes])
 
 	const selectedProject = useMemo(
@@ -288,10 +295,10 @@ export function NewChat() {
 		[projects, selectedDirectory],
 	)
 
-	const { data: providers } = useProviders(selectedDirectory || null)
-	const { data: config } = useConfig(selectedDirectory || null)
+	const { data: providers } = useProviders(selectedDirectory)
+	const { data: config } = useConfig(selectedDirectory)
 	const { data: vcs, reload: reloadVcs } = useVcs(selectedDirectory || null)
-	const { agents: openCodeAgents } = useOpenCodeAgents(selectedDirectory || null)
+	const { agents: openCodeAgents } = useOpenCodeAgents(selectedDirectory)
 	const { recentModels, addRecent: addRecentModel } = useModelState()
 
 	// Handle model selection — set local state + persist to model.json.
@@ -415,7 +422,12 @@ export function NewChat() {
 	)
 
 	useEffect(() => {
-		if (projects.length === 0) return
+		if (projectSlug === NO_PROJECT_SLUG) {
+			userSelectedProjectRef.current = true
+			setSelectedDirectory("")
+			setWorktreeMode("local")
+			return
+		}
 
 		if (projectSlug) {
 			const match = projects.find((p) => p.slug === projectSlug)
@@ -425,7 +437,9 @@ export function NewChat() {
 			}
 		}
 
-		setSelectedDirectory(projects[0].directory)
+		if (!userSelectedProjectRef.current && projects.length > 0) {
+			setSelectedDirectory(projects[0].directory)
+		}
 	}, [projectSlug, projects])
 
 	// ---
@@ -465,7 +479,7 @@ export function NewChat() {
 			navigate({
 				to: "/project/$projectSlug/session/$sessionId",
 				params: {
-					projectSlug: project?.slug ?? "unknown",
+					projectSlug: project?.slug ?? NO_PROJECT_SLUG,
 					sessionId,
 				},
 			})
@@ -646,7 +660,7 @@ export function NewChat() {
 
 	const handleLaunch = useCallback(
 		async (promptText: string, files?: FileAttachment[]) => {
-			if (!selectedDirectory || !promptText) return
+			if (!promptText) return
 			if (runtime.provider !== "opencode" && !runtime.model) {
 				setError("Select a model for the unified provider before starting a session.")
 				return
@@ -658,7 +672,7 @@ export function NewChat() {
 			setLaunching(true)
 			setError(null)
 			try {
-				if (worktreeMode === "worktree") {
+				if (worktreeMode === "worktree" && selectedDirectory) {
 					// Worktree mode navigates immediately and runs setup in the background.
 					// The launching state is cleared right away since the chat view takes over.
 					launchWorktree(promptText, files)
@@ -697,7 +711,6 @@ export function NewChat() {
 					{/* "{t("newChat.hero")}" + project name */}
 					<div className="text-center">
 						<h1 className="text-2xl font-semibold text-foreground">{t("newChat.hero")}</h1>
-						{projects.length > 1 ? (
 							<Popover open={projectPickerOpen} onOpenChange={setProjectPickerOpen}>
 								<PopoverTrigger
 									render={
@@ -707,15 +720,32 @@ export function NewChat() {
 										/>
 									}
 								>
-									{selectedProject?.name ?? t("newChat.selectProject")}
+									{selectedDirectory ? selectedProject?.name ?? t("newChat.selectProject") : "No Project"}
 									<ChevronDownIcon className="size-4" />
 								</PopoverTrigger>
 								<PopoverContent className="w-64 p-1" align="center">
+									<button
+										type="button"
+										onClick={() => {
+											userSelectedProjectRef.current = true
+											setSelectedDirectory("")
+											setWorktreeMode("local")
+											setProjectPickerOpen(false)
+										}}
+										className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
+											!selectedDirectory
+												? "bg-muted text-foreground"
+												: "text-muted-foreground"
+										}`}
+									>
+										<span className="truncate font-medium">No Project</span>
+									</button>
 									{projects.map((p) => (
 										<button
 											key={p.directory}
 											type="button"
 											onClick={() => {
+												userSelectedProjectRef.current = true
 												setSelectedDirectory(p.directory)
 												setProjectPickerOpen(false)
 											}}
@@ -733,9 +763,6 @@ export function NewChat() {
 									))}
 								</PopoverContent>
 							</Popover>
-						) : (
-							<p className="mt-1 text-xl text-muted-foreground">{selectedProject?.name ?? ""}</p>
-						)}
 					</div>
 
 					{/* Suggestion cards — 3 column grid */}
@@ -748,7 +775,7 @@ export function NewChat() {
 									key={suggestion.key}
 									type="button"
 									onClick={() => handleLaunch(suggestionText)}
-									disabled={launching || !selectedDirectory || !runtimeReady}
+									disabled={launching || !runtimeReady}
 									className="group/card flex flex-col gap-3 rounded-xl border border-border/50 bg-background/40 backdrop-blur-sm p-4 text-left transition-colors hover:border-muted-foreground/30 hover:bg-background/60 disabled:opacity-50"
 								>
 									<Icon className="size-5 text-muted-foreground transition-colors group-hover/card:text-foreground" />
@@ -805,7 +832,7 @@ export function NewChat() {
 							<PromptInputTextarea
 								placeholder={t("newChat.placeholder")}
 								autoFocus
-								disabled={launching || !selectedDirectory || projects.length === 0 || !runtimeReady}
+								disabled={launching || !runtimeReady}
 								className="min-h-[80px]"
 								onKeyDown={handleTextareaKeyDown}
 							/>
@@ -867,10 +894,9 @@ export function NewChat() {
 						</div>
 					)}
 
-					{/* No projects warning */}
-					{projects.length === 0 && (
+					{!selectedDirectory && (
 						<p className="mt-2 text-center text-xs text-muted-foreground">
-							No projects found. Check that projects exist in ~/.local/share/opencode/storage/.
+							No Project mode uses general chat without project or worktree context.
 						</p>
 					)}
 				</div>

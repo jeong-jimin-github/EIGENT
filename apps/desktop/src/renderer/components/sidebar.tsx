@@ -283,9 +283,8 @@ export function AppSidebarContent({
 				{hasContent && (activeSessions.length > 0 || recentSessions.length > 0) && (
 					<SidebarSeparator className="bg-sidebar-border/5" />
 				)}
-				{hasContent && (
-					<SidebarGroup>
-						<SidebarGroupLabel>{t("sidebar.projects")}</SidebarGroupLabel>
+				<SidebarGroup>
+					<SidebarGroupLabel>{t("sidebar.projects")}</SidebarGroupLabel>
 						{/* Action buttons row */}
 						<div className="absolute top-3.5 right-3 flex max-w-[calc(100%-4rem)] items-center gap-0.5 overflow-hidden">
 							<Tooltip>
@@ -386,8 +385,7 @@ export function AppSidebarContent({
 								)}
 							</SidebarMenu>
 						</SidebarGroupContent>
-					</SidebarGroup>
-				)}
+				</SidebarGroup>
 			</SidebarContent>
 			<SidebarFooter className="space-y-0 p-2">
 				<ServerIndicator />

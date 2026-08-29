@@ -310,6 +310,7 @@ export const agentFamily = atomFamily((sessionId: string) => {
 		const parentDir = sandboxToParent.get(directory)
 		const displayDir = parentDir ?? directory
 		const projectInfo = slugMap.get(displayDir)
+		const isNoProject = !directory
 
 		// Derive currentActivity from tree-scoped requests first, then own status.
 		// This ensures "waiting for approval" shows even when the permission is from a sub-agent.
@@ -322,8 +323,8 @@ export const agentFamily = atomFamily((sessionId: string) => {
 			name: session.title || "Untitled",
 			status: agentStatus,
 			environment: "local" as const,
-			project: projectNameFromDir(displayDir),
-			projectSlug: projectInfo?.slug ?? projectNameFromDir(displayDir),
+			project: isNoProject ? "No Project" : projectNameFromDir(displayDir),
+			projectSlug: isNoProject ? "no-project" : projectInfo?.slug ?? projectNameFromDir(displayDir),
 			directory,
 			projectDirectory: displayDir,
 			branch: entry.branch ?? "",
