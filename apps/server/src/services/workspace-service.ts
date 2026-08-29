@@ -1,7 +1,13 @@
 /** Workspace filesystem operations for the EIGENT backend. */
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import os from "node:os"
 import path from "node:path"
-import { assertWorkspaceAllowed, canonicalizePotentialPath, pathInside } from "./workspace-policy"
+import {
+	assertWorkspaceAllowed,
+	canonicalizePotentialPath,
+	configuredWorkspaceRoots,
+	pathInside,
+} from "./workspace-policy"
 
 export interface WorkspaceEntry {
 	name: string
@@ -12,6 +18,51 @@ export interface WorkspaceEntry {
 }
 
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024
+
+function normalizeProjectName(name: string): string {
+	const trimmed = name.trim()
+	if (!trimmed) throw new Error("project name is required")
+	if (trimmed === "." || trimmed === ".." || trimmed.includes("/") || trimmed.includes("\\")) {
+		throw new Error("project name must be a single folder name")
+	}
+	const hasControlCharacter = [...trimmed].some((char) => char.charCodeAt(0) < 32)
+	if (/[<>:"|?*]/.test(trimmed) || hasControlCharacter || /[. ]$/.test(trimmed)) {
+		throw new Error("project name contains characters that are not valid in a folder name")
+	}
+	if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmed)) {
+		throw new Error("project name is reserved by the operating system")
+	}
+	return trimmed
+}
+
+function defaultProjectRoot(): string {
+	const [configuredRoot] = configuredWorkspaceRoots()
+	return configuredRoot ?? path.join(os.homedir(), "EIGENT Projects")
+}
+
+export async function createProjectDirectory(name: string) {
+	const projectName = normalizeProjectName(name)
+	const root = defaultProjectRoot()
+	await mkdir(root, { recursive: true })
+
+	const target = path.join(root, projectName)
+	assertWorkspaceAllowed(target, "project directory")
+	const canonicalRoot = canonicalizePotentialPath(root)
+	const canonicalTarget = canonicalizePotentialPath(target)
+	if (!pathInside(canonicalRoot, canonicalTarget) || canonicalRoot === canonicalTarget) {
+		throw new Error("project directory escapes the workspace root")
+	}
+
+	try {
+		await mkdir(target)
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+			throw new Error("a project folder with this name already exists")
+		}
+		throw err
+	}
+	return { path: target }
+}
 
 function normalizeRoot(root: string): string {
 	return assertWorkspaceAllowed(root, "workspace root")

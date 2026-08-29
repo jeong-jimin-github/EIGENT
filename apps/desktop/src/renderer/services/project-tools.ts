@@ -62,6 +62,13 @@ export async function writeWorkspaceFile(root: string, path: string, content: st
 	})
 }
 
+export async function createProjectDirectory(name: string) {
+	return request<{ path: string }>("/api/workspace/project", {
+		method: "POST",
+		body: JSON.stringify({ name }),
+	})
+}
+
 export async function createWorkspaceDirectory(root: string, path: string) {
 	return request<{ path: string }>("/api/workspace/mkdir", {
 		method: "POST",

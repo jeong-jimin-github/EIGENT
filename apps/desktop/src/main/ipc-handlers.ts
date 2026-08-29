@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises"
+import path from "node:path"
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, net, systemPreferences } from "electron"
 import {
 	acceptRun,
@@ -58,6 +60,38 @@ import {
 } from "./updater"
 
 const log = createLogger("ipc")
+
+function normalizeProjectName(name: string): string {
+	const trimmed = name.trim()
+	if (!trimmed) throw new Error("project name is required")
+	if (trimmed === "." || trimmed === ".." || /[\/]/.test(trimmed)) {
+		throw new Error("project name must be a single folder name")
+	}
+	const hasControlCharacter = [...trimmed].some((char) => char.charCodeAt(0) < 32)
+	if (/[<>:"|?*]/.test(trimmed) || hasControlCharacter || /[. ]$/.test(trimmed)) {
+		throw new Error("project name contains characters that are not valid in a folder name")
+	}
+	if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(trimmed)) {
+		throw new Error("project name is reserved by the operating system")
+	}
+	return trimmed
+}
+
+async function createLocalProjectDirectory(name: string): Promise<{ path: string }> {
+	const projectName = normalizeProjectName(name)
+	const root = path.join(app.getPath("documents"), "EIGENT Projects")
+	await mkdir(root, { recursive: true })
+	const target = path.join(root, projectName)
+	try {
+		await mkdir(target)
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+			throw new Error("a project folder with this name already exists")
+		}
+		throw err
+	}
+	return { path: target }
+}
 
 /** Read the opaque windows preference for use at window creation time. */
 export { getOpaqueWindows as getOpaqueWindowsPref } from "./settings-store"
@@ -305,7 +339,14 @@ export function registerIpcHandlers(): void {
 		),
 	)
 
-	// --- Directory picker ---
+	// --- Project directories / directory picker ---
+
+	ipcMain.handle(
+		"project:create-directory",
+		withLogging("project:create-directory", async (_, name: string) =>
+			createLocalProjectDirectory(name),
+		),
+	)
 
 	ipcMain.handle(
 		"dialog:open-directory",

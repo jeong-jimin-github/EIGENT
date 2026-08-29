@@ -505,7 +505,8 @@ export interface PalotAPI {
 	/** Subscribe to system accent color changes. Returns an unsubscribe function. */
 	onAccentColorChanged: (callback: (color: string) => void) => () => void
 
-	// Directory picker
+	// Project directories / directory picker
+	createProjectDirectory: (name: string) => Promise<{ path: string }>
 	pickDirectory: () => Promise<string | null>
 
 	// Fetch proxy (bypasses Chromium connection limits)

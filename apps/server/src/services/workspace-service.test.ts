@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { listWorkspace, readWorkspaceText, writeWorkspaceText } from "./workspace-service"
+import {
+	createProjectDirectory,
+	listWorkspace,
+	readWorkspaceText,
+	writeWorkspaceText,
+} from "./workspace-service"
 
 let base = ""
 let rootsBefore: string | undefined
@@ -16,6 +21,27 @@ afterEach(async () => {
 	if (rootsBefore === undefined) delete process.env.EIGENT_WORKSPACE_ROOTS
 	else process.env.EIGENT_WORKSPACE_ROOTS = rootsBefore
 	await rm(base, { recursive: true, force: true })
+})
+
+describe("project directory creation", () => {
+	test("creates a project from only a name inside the configured workspace root", async () => {
+		const allowedRoot = path.join(base, "workspaces")
+		await mkdir(allowedRoot, { recursive: true })
+		process.env.EIGENT_WORKSPACE_ROOTS = allowedRoot
+
+		const created = await createProjectDirectory("새 프로젝트")
+		expect(created.path).toBe(path.join(allowedRoot, "새 프로젝트"))
+		expect((await stat(created.path)).isDirectory()).toBe(true)
+	})
+
+	test("rejects path-shaped names instead of treating them as paths", async () => {
+		const allowedRoot = path.join(base, "workspaces")
+		await mkdir(allowedRoot, { recursive: true })
+		process.env.EIGENT_WORKSPACE_ROOTS = allowedRoot
+
+		await expect(createProjectDirectory("../escape")).rejects.toThrow("single folder name")
+		await expect(createProjectDirectory("nested/project")).rejects.toThrow("single folder name")
+	})
 })
 
 describe("workspace filesystem policy", () => {

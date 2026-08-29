@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import {
+	createProjectDirectory,
 	createWorkspaceDirectory,
 	deleteWorkspacePath,
 	listWorkspace,
@@ -13,6 +14,15 @@ function message(err: unknown) {
 }
 
 const app = new Hono()
+	.post("/project", async (c) => {
+		const body = (await c.req.json()) as { name?: string }
+		if (!body.name) return c.json({ error: "name is required" }, 400)
+		try {
+			return c.json(await createProjectDirectory(body.name), 201)
+		} catch (err) {
+			return c.json({ error: message(err) }, 400)
+		}
+	})
 	.get("/list", async (c) => {
 		const root = c.req.query("root")
 		const targetPath = c.req.query("path") ?? ""

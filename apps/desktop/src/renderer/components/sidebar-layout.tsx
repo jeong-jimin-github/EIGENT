@@ -15,12 +15,11 @@ import { Outlet, useNavigate } from "@tanstack/react-router"
 import { useAtomValue } from "jotai"
 import { PanelLeftIcon, PlusIcon } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { activeServerConfigAtom, serverConnectedAtom } from "../atoms/connection"
+import { serverConnectedAtom } from "../atoms/connection"
 import { useAgents, useProjectList, useSetCommandPaletteOpen } from "../hooks/use-agents"
 import { useAgentActions } from "../hooks/use-server"
 import type { Agent, SidebarProject } from "../lib/types"
-import { pickDirectory } from "../services/backend"
-import { addProject, removeProject } from "../services/connection-manager"
+import { removeProject } from "../services/connection-manager"
 import { AddProjectDialog } from "./add-project-dialog"
 import { APP_BAR_HEIGHT, AppBar } from "./app-bar"
 import { AppSidebarContent } from "./sidebar"
@@ -186,21 +185,11 @@ export function SidebarLayout() {
 		setCommandPaletteOpen(true)
 	}, [setCommandPaletteOpen])
 
-	// Electron can use the native folder picker. Browser mode always uses the
-	// path dialog, even when connected to the built-in local server.
-	const activeServer = useAtomValue(activeServerConfigAtom)
 	const [addProjectOpen, setAddProjectOpen] = useState(false)
 
-	const handleAddProject = useCallback(async () => {
-		if (isElectronEnv && activeServer.type === "local") {
-			const directory = await pickDirectory()
-			if (!directory) return
-			await addProject(directory)
-			navigate({ to: "/" })
-			return
-		}
+	const handleAddProject = useCallback(() => {
 		setAddProjectOpen(true)
-	}, [activeServer.type, navigate])
+	}, [])
 
 	const handleProjectAdded = useCallback(
 		(_directory: string) => {

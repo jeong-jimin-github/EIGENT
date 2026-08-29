@@ -177,7 +177,10 @@ contextBridge.exposeInMainWorld("palot", {
 		}
 	},
 
-	// --- Directory picker ---
+	// --- Project directories / directory picker ---
+
+	/** Creates a new local project folder under EIGENT Projects. */
+	createProjectDirectory: (name: string) => ipcRenderer.invoke("project:create-directory", name),
 
 	/** Opens a native folder picker dialog. Returns the selected path, or null if cancelled. */
 	pickDirectory: () => ipcRenderer.invoke("dialog:open-directory"),

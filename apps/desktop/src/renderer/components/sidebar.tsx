@@ -19,7 +19,7 @@ import {
 	SidebarSeparator,
 } from "@palot/ui/components/sidebar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@palot/ui/components/tooltip"
-import { useNavigate, useParams } from "@tanstack/react-router"
+import { useNavigate, useParams, useRouterState } from "@tanstack/react-router"
 import { useAtomValue } from "jotai"
 import {
 	AlertCircleIcon,
@@ -113,8 +113,11 @@ export function AppSidebarContent({
 }: AppSidebarContentProps) {
 	const navigate = useNavigate()
 	const { t } = useI18n()
-	const routeParams = useParams({ strict: false }) as { sessionId?: string }
+	const routeParams = useParams({ strict: false }) as { sessionId?: string; projectSlug?: string }
 	const selectedSessionId = routeParams.sessionId ?? null
+	const projectToolsOpen = useRouterState({
+		select: (state) => state.location.pathname.endsWith("/tools"),
+	})
 	const automationsEnabled = useAtomValue(automationsEnabledAtom)
 	const activeServer = useAtomValue(activeServerConfigAtom)
 	const isLocalServer = activeServer.type === "local"
@@ -368,6 +371,7 @@ export function AppSidebarContent({
 								<ProjectFolder
 									key={project.id}
 									project={project}
+									projectToolsOpen={projectToolsOpen && routeParams.projectSlug === project.slug}
 									selectedSessionId={selectedSessionId}
 									onRename={onRenameSession}
 									onDelete={onDeleteSession}
@@ -447,6 +451,7 @@ const ProjectSessionItem = memo(function ProjectSessionItem({
  */
 const ProjectFolder = memo(function ProjectFolder({
 	project,
+	projectToolsOpen,
 	selectedSessionId,
 	onRename,
 	onDelete,
@@ -454,6 +459,7 @@ const ProjectFolder = memo(function ProjectFolder({
 	onRemoveProject,
 }: {
 	project: SidebarProject
+	projectToolsOpen: boolean
 	selectedSessionId: string | null
 	onRename?: (agent: Agent, title: string) => Promise<void>
 	onDelete?: (agent: Agent) => Promise<void>
@@ -555,13 +561,22 @@ const ProjectFolder = memo(function ProjectFolder({
 							<SidebarMenuItem>
 								<SidebarMenuButton
 									size="sm"
-									tooltip={t("sidebar.projectTools")}
-									onClick={() =>
+									tooltip={t(
+										projectToolsOpen ? "sidebar.closeProjectTools" : "sidebar.projectTools",
+									)}
+									onClick={() => {
+										if (projectToolsOpen) {
+											navigate({
+												to: "/project/$projectSlug",
+												params: { projectSlug: project.slug },
+											})
+											return
+										}
 										navigate({
 											to: "/project/$projectSlug/tools",
 											params: { projectSlug: project.slug },
 										})
-									}
+									}}
 								>
 									<WrenchIcon className="size-3.5" />
 									<span>{t("sidebar.projectTools")}</span>

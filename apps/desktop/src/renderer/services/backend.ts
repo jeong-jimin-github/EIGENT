@@ -153,8 +153,15 @@ export async function checkBackendHealth(): Promise<boolean> {
 }
 
 // ============================================================
-// Directory picker — Electron-only (native dialog via IPC)
+// Project directories / directory picker
 // ============================================================
+
+/** Creates a project folder in the runtime's default workspace root. */
+export async function createProjectDirectory(name: string): Promise<{ path: string }> {
+	if (isElectron) return window.palot.createProjectDirectory(name)
+	const { createProjectDirectory: httpCreate } = await import("./project-tools")
+	return httpCreate(name)
+}
 
 /**
  * Opens a native folder picker dialog.

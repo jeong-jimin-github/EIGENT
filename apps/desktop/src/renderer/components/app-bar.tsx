@@ -1,7 +1,8 @@
 import { Button } from "@palot/ui/components/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@palot/ui/components/tooltip"
-import { useNavigate, useParams } from "@tanstack/react-router"
+import { useNavigate, useParams, useRouterState } from "@tanstack/react-router"
 import { WrenchIcon } from "lucide-react"
+import { useI18n } from "../hooks/use-i18n"
 import { useAppBarContent } from "./app-bar-context"
 
 // Height of the app bar in pixels — used as CSS variable
@@ -17,6 +18,10 @@ function isElectron(): boolean {
 export function AppBar() {
 	const pageContent = useAppBarContent()
 	const navigate = useNavigate()
+	const { t } = useI18n()
+	const projectToolsOpen = useRouterState({
+		select: (state) => state.location.pathname.endsWith("/tools"),
+	})
 	const { projectSlug } = useParams({ strict: false }) as { projectSlug?: string }
 
 	return (
@@ -40,15 +45,21 @@ export function AppBar() {
 								variant="ghost"
 								size="icon"
 								className="size-7 shrink-0"
-								onClick={() =>
+								onClick={() => {
+									if (projectToolsOpen) {
+										navigate({ to: "/project/$projectSlug", params: { projectSlug } })
+										return
+									}
 									navigate({ to: "/project/$projectSlug/tools", params: { projectSlug } })
-								}
+								}}
 							/>
 						}
 					>
 						<WrenchIcon aria-hidden="true" className="size-3.5" />
 					</TooltipTrigger>
-					<TooltipContent>Project tools</TooltipContent>
+					<TooltipContent>
+						{t(projectToolsOpen ? "sidebar.closeProjectTools" : "sidebar.projectTools")}
+					</TooltipContent>
 				</Tooltip>
 			) : null}
 		</div>
