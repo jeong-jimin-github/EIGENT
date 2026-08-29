@@ -542,7 +542,7 @@ const ProjectFolder = memo(function ProjectFolder({
 					<ContextMenu>
 						<ContextMenuTrigger render={projectButton} />
 						<ContextMenuContent>
-							<ContextMenuItem variant="destructive" onSelect={() => onRemoveProject(project)}>
+							<ContextMenuItem variant="destructive" onClick={() => onRemoveProject(project)}>
 								<TrashIcon className="size-4" />
 								{t("sidebar.removeProject")}
 							</ContextMenuItem>
@@ -783,20 +783,20 @@ const SessionItem = memo(function SessionItem({
 			<ContextMenuTrigger render={btn} />
 			<ContextMenuContent>
 				{onRename && (
-					<ContextMenuItem onSelect={startEditing}>
+					<ContextMenuItem onClick={startEditing}>
 						<PencilIcon className="size-4" />
 						{t("sidebar.rename")}
 					</ContextMenuItem>
 				)}
 				{onFork && (
-					<ContextMenuItem onSelect={() => onFork(agent)}>
+					<ContextMenuItem onClick={() => onFork(agent)}>
 						<GitForkIcon className="size-4" />
 						{t("sidebar.fork")}
 					</ContextMenuItem>
 				)}
 				{(onRename || onFork) && onDelete && <ContextMenuSeparator />}
 				{onDelete && (
-					<ContextMenuItem variant="destructive" onSelect={() => onDelete(agent)}>
+					<ContextMenuItem variant="destructive" onClick={() => onDelete(agent)}>
 						<TrashIcon className="size-4" />
 						{t("sidebar.delete")}
 					</ContextMenuItem>
