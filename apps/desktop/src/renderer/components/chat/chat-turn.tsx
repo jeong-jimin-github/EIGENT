@@ -668,6 +668,7 @@ export const ChatTurnComponent = memo(
 		// Determine if tools should be shown individually (active turn behavior)
 		const isActiveTurn = working
 		const isVerbose = displayMode === "verbose"
+		const isFullThinking = displayMode === "thinking"
 
 		// In default mode, we render a "stream" of grouped tool summaries + text.
 		// In verbose mode, we render full tool cards.
@@ -832,6 +833,7 @@ export const ChatTurnComponent = memo(
 												key={`process-${idx}`}
 												isStreaming={isStreaming}
 												duration={durationSec}
+												open={isFullThinking ? true : undefined}
 												defaultOpen={isStreaming ? undefined : false}
 											>
 												<ReasoningTrigger />
@@ -960,6 +962,7 @@ export const ChatTurnComponent = memo(
 												key={item.part.id}
 												isStreaming={isReasoningStreaming}
 												duration={durationSec}
+												open={isFullThinking ? true : undefined}
 												defaultOpen={isReasoningStreaming ? undefined : false}
 											>
 												<ReasoningTrigger />

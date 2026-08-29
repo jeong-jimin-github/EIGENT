@@ -7,7 +7,7 @@ import type { ColorScheme } from "../lib/themes"
 // Types
 // ============================================================
 
-export type DisplayMode = "default" | "verbose"
+export type DisplayMode = "default" | "thinking" | "verbose"
 
 export interface PersistedModelRef {
 	providerID: string

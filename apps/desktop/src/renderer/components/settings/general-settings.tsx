@@ -184,7 +184,11 @@ function DisplayModeRow() {
 	const displayMode = useAtomValue(displayModeAtom)
 	const setDisplayMode = useSetAtom(displayModeAtom)
 	const { t } = useI18n()
-	const items = { default: t("settings.default"), verbose: t("settings.verbose") }
+	const items = {
+		default: t("settings.default"),
+		thinking: t("settings.fullThinking"),
+		verbose: t("settings.verbose"),
+	}
 
 	return (
 		<SettingsRow
@@ -201,6 +205,7 @@ function DisplayModeRow() {
 				</SelectTrigger>
 				<SelectContent>
 					<SelectItem value="default">{items.default}</SelectItem>
+					<SelectItem value="thinking">{items.thinking}</SelectItem>
 					<SelectItem value="verbose">{items.verbose}</SelectItem>
 				</SelectContent>
 			</Select>

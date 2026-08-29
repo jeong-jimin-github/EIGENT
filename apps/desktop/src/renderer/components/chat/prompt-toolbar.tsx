@@ -21,6 +21,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@palot/ui/components/to
 import { cn } from "@palot/ui/lib/utils"
 import { useAtomValue } from "jotai"
 import {
+	BrainIcon,
 	CheckIcon,
 	ChevronDownIcon,
 	GitBranchIcon,
@@ -670,13 +671,15 @@ interface StatusBarProps {
 	compaction?: CompactionConfig
 }
 
-const DISPLAY_MODE_CYCLE: DisplayMode[] = ["default", "verbose"]
+const DISPLAY_MODE_CYCLE: DisplayMode[] = ["default", "thinking", "verbose"]
 const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
 	default: "Default",
+	thinking: "Full thinking",
 	verbose: "Verbose",
 }
 const DISPLAY_MODE_ICONS: Record<DisplayMode, typeof ListIcon> = {
 	default: ListIcon,
+	thinking: BrainIcon,
 	verbose: MaximizeIcon,
 }
 
