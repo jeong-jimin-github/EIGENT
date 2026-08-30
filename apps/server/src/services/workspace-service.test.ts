@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import {
 	createProjectDirectory,
+	listManagedProjects,
 	listWorkspace,
 	readWorkspaceText,
 	writeWorkspaceText,
@@ -32,6 +33,29 @@ describe("project directory creation", () => {
 		const created = await createProjectDirectory("새 프로젝트")
 		expect(created.path).toBe(path.join(allowedRoot, "새 프로젝트"))
 		expect((await stat(created.path)).isDirectory()).toBe(true)
+	})
+
+	test("reuses an existing managed project directory created by an older build", async () => {
+		const allowedRoot = path.join(base, "workspaces")
+		const existing = path.join(allowedRoot, "existing-project")
+		await mkdir(existing, { recursive: true })
+		process.env.EIGENT_WORKSPACE_ROOTS = allowedRoot
+
+		const created = await createProjectDirectory("existing-project")
+		expect(created.path).toBe(existing)
+		expect(created.created).toBe(false)
+	})
+
+	test("lists managed project folders but excludes the internal no-project workspace", async () => {
+		const allowedRoot = path.join(base, "workspaces")
+		await mkdir(path.join(allowedRoot, "alpha"), { recursive: true })
+		await mkdir(path.join(allowedRoot, "_no-project"), { recursive: true })
+		process.env.EIGENT_WORKSPACE_ROOTS = allowedRoot
+
+		const projects = await listManagedProjects()
+		expect(projects.map((project) => project.name)).toEqual(["alpha"])
+		expect(projects[0]?.worktree).toBe(path.join(allowedRoot, "alpha"))
+		expect(projects[0]?.id.startsWith("workspace-")).toBe(true)
 	})
 
 	test("rejects path-shaped names instead of treating them as paths", async () => {

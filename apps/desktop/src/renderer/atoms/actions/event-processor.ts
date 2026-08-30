@@ -71,6 +71,7 @@ export function processEvent(event: Event): void {
 
 		case "project.updated": {
 			const project = event.properties
+			if (project.id === "global" && project.worktree === "/") break
 			if (project.id && project.worktree) {
 				const current = appStore.get(discoveryAtom)
 				const existing = current.projects.findIndex((p) => p.id === project.id)

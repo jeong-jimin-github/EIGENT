@@ -20,6 +20,7 @@ import {
 	updateStreamingPart,
 } from "../atoms/streaming"
 import { createLogger } from "../lib/logger"
+import { listManagedProjects } from "./project-tools"
 import type { Event } from "../lib/types"
 import {
 	connectToServer,
@@ -161,10 +162,26 @@ export async function connectToOpenCode(url: string, authHeader?: string | null)
 	startEventLoop(baseClient, abortController.signal, gen)
 }
 
-/**
- * List all projects known to the OpenCode server via the API.
- * Uses the base client (no directory scope) since project.list() is global.
- */
+/** Synthetic OpenCode-shaped project for a directory that OpenCode maps to `global /`. */
+function projectForDirectory(directory: string): import("../lib/types").OpenCodeProject {
+	let hash = 0
+	for (let i = 0; i < directory.length; i++) hash = (hash * 31 + directory.charCodeAt(i)) | 0
+	const name = directory.replace(/[\/]+$/, "").split(/[\/]/).pop() || directory
+	const now = Date.now()
+	return {
+		id: `dir-${Math.abs(hash).toString(16).padStart(8, "0")}`,
+		worktree: directory,
+		name,
+		time: { created: now, updated: now },
+		sandboxes: [],
+	}
+}
+
+function isSyntheticGlobalProject(project: import("../lib/types").OpenCodeProject | undefined): boolean {
+	return !!project && project.id === "global" && project.worktree === "/"
+}
+
+/** Add a directory to the EIGENT project list without trusting OpenCode's `global /` fallback. */
 export async function addProject(directory: string) {
 	const normalized = directory.trim()
 	if (!normalized) throw new Error("Project directory is required")
@@ -172,12 +189,16 @@ export async function addProject(directory: string) {
 	if (!client) throw new Error("Not connected to OpenCode server")
 
 	const result = await client.project.current({ directory: normalized }, { throwOnError: true })
-	const project = result.data
-	if (!project?.worktree) throw new Error("The server did not recognize this project directory")
+	let project = result.data
+	if (!project?.worktree || isSyntheticGlobalProject(project) || project.worktree !== normalized) {
+		project = projectForDirectory(normalized)
+	}
 
 	appStore.set(hiddenProjectDirectoriesAtom, (prev) => prev.filter((dir) => dir !== project.worktree))
 	appStore.set(discoveryAtom, (prev) => {
-		const projects = prev.projects.filter((item) => item.worktree !== project.worktree)
+		const projects = prev.projects.filter(
+			(item) => item.worktree !== project.worktree && !isSyntheticGlobalProject(item),
+		)
 		return { ...prev, loaded: true, projects: [...projects, project] }
 	})
 	await loadProjectSessions(project.worktree)
@@ -202,8 +223,27 @@ export async function loadAllProjects() {
 		return []
 	}
 	try {
-		const projects = await listProjects(client)
-		log.info("Loaded projects from API", { count: projects.length })
+		const openCodeProjects = (await listProjects(client)).filter((project) => !isSyntheticGlobalProject(project))
+		let managedProjects: import("../lib/types").OpenCodeProject[] = []
+		if (typeof window !== "undefined" && !("palot" in window)) {
+			try {
+				managedProjects = await listManagedProjects()
+			} catch (err) {
+				log.warn("Failed to list managed EIGENT projects; using OpenCode projects only", err)
+			}
+		}
+
+		const byDirectory = new Map<string, import("../lib/types").OpenCodeProject>()
+		for (const project of [...openCodeProjects, ...managedProjects]) {
+			if (!project.worktree || isSyntheticGlobalProject(project)) continue
+			byDirectory.set(project.worktree, { ...byDirectory.get(project.worktree), ...project })
+		}
+		const projects = [...byDirectory.values()]
+		log.info("Loaded projects", {
+			openCode: openCodeProjects.length,
+			managed: managedProjects.length,
+			merged: projects.length,
+		})
 		return projects
 	} catch (err) {
 		log.error("Failed to load projects from API", err)

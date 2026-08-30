@@ -4,6 +4,7 @@ import {
 	createProjectDirectory,
 	createWorkspaceDirectory,
 	deleteWorkspacePath,
+	listManagedProjects,
 	listWorkspace,
 	readWorkspaceText,
 	renameWorkspacePath,
@@ -27,6 +28,13 @@ const app = new Hono()
 		if (!body.name) return c.json({ error: "name is required" }, 400)
 		try {
 			return c.json(await createProjectDirectory(body.name), 201)
+		} catch (err) {
+			return c.json({ error: message(err) }, 400)
+		}
+	})
+	.get("/projects", async (c) => {
+		try {
+			return c.json({ projects: await listManagedProjects() }, 200)
 		} catch (err) {
 			return c.json({ error: message(err) }, 400)
 		}

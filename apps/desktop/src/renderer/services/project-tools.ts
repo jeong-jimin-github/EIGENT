@@ -1,3 +1,4 @@
+import type { OpenCodeProject } from "../lib/types"
 /** Browser-side client for EIGENT workspace/process/terminal services. */
 
 export interface WorkspaceEntry {
@@ -69,10 +70,15 @@ export async function writeWorkspaceFile(root: string, path: string, content: st
 }
 
 export async function createProjectDirectory(name: string) {
-	return request<{ path: string }>("/api/workspace/project", {
+	return request<{ path: string; created?: boolean }>("/api/workspace/project", {
 		method: "POST",
 		body: JSON.stringify({ name }),
 	})
+}
+
+export async function listManagedProjects(): Promise<OpenCodeProject[]> {
+	const data = await request<{ projects: OpenCodeProject[] }>("/api/workspace/projects")
+	return data.projects
 }
 
 export async function createWorkspaceDirectory(root: string, path: string) {

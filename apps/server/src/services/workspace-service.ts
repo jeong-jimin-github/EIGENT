@@ -1,4 +1,5 @@
 /** Workspace filesystem operations for the EIGENT backend. */
+import { createHash } from "node:crypto"
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -56,13 +57,57 @@ export async function createProjectDirectory(name: string) {
 
 	try {
 		await mkdir(target)
+		return { path: target, created: true }
 	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-			throw new Error("a project folder with this name already exists")
+		if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err
+		const existing = await stat(target).catch(() => null)
+		if (!existing?.isDirectory()) {
+			throw new Error("a non-directory entry with this project name already exists")
 		}
-		throw err
+		// Recover folders created by older builds that failed to register them in the UI.
+		return { path: target, created: false }
 	}
-	return { path: target }
+}
+
+export interface ManagedWorkspaceProject {
+	id: string
+	worktree: string
+	name: string
+	time: { created: number; updated: number }
+	sandboxes: string[]
+}
+
+function managedProjectId(directory: string): string {
+	return `workspace-${createHash("sha256").update(directory).digest("hex").slice(0, 16)}`
+}
+
+/**
+ * List direct EIGENT workspace children as projects. OpenCode 1.18.x may map
+ * ordinary directories to its synthetic `global /` project even though session
+ * APIs still honor the requested directory, so the EIGENT workspace is the
+ * authoritative source for browser-created projects.
+ */
+export async function listManagedProjects(): Promise<ManagedWorkspaceProject[]> {
+	const root = defaultProjectRoot()
+	await mkdir(root, { recursive: true })
+	const entries = await readdir(root, { withFileTypes: true })
+	const projects = await Promise.all(
+		entries
+			.filter((entry) => entry.isDirectory() && entry.name !== "_no-project")
+			.map(async (entry) => {
+				const worktree = path.join(root, entry.name)
+				assertWorkspaceAllowed(worktree, "project directory")
+				const info = await stat(worktree)
+				return {
+					id: managedProjectId(worktree),
+					worktree,
+					name: entry.name,
+					time: { created: info.birthtimeMs || info.ctimeMs, updated: info.mtimeMs },
+					sandboxes: [],
+				} satisfies ManagedWorkspaceProject
+			}),
+	)
+	return projects.toSorted((a, b) => b.time.updated - a.time.updated || a.name.localeCompare(b.name))
 }
 
 function normalizeRoot(root: string): string {
