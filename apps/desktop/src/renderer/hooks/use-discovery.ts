@@ -14,6 +14,25 @@ import {
 
 const log = createLogger("discovery")
 
+const INITIAL_SERVER_RECOVERY_TIMEOUT_MS = 120_000
+const SERVER_RECOVERY_POLL_MS = 500
+
+/**
+ * The server process can be reachable before the child OpenCode process is ready,
+ * especially on low-memory remote hosts. connectToOpenCode() starts its own health/SSE
+ * recovery loop, so discovery should wait for that loop instead of permanently
+ * classifying the server offline after the very first probe.
+ */
+async function waitForInitialServerRecovery(): Promise<boolean> {
+	if (appStore.get(serverConnectedAtom)) return true
+	const deadline = Date.now() + INITIAL_SERVER_RECOVERY_TIMEOUT_MS
+	while (Date.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, SERVER_RECOVERY_POLL_MS))
+		if (appStore.get(serverConnectedAtom)) return true
+	}
+	return appStore.get(serverConnectedAtom)
+}
+
 // Module-level guard to prevent concurrent discovery runs.
 // The Jotai atom guard (loaded/loading) depends on a React re-render
 // to propagate, which can race with React Strict Mode double-effects
@@ -95,23 +114,31 @@ export function useDiscovery() {
 				})
 				await connectToOpenCode(url, authHeader)
 
-				// --- Step 3b: Bail if server is unreachable ---
-				// connectToOpenCode runs a health check and sets serverConnectedAtom.
-				// If the server is offline, skip project/session loading so discovery
-				// stays in a non-loaded state, allowing the sidebar to show "Server offline".
-				// Keep discoveryInFlight = true to prevent an infinite retry loop;
-				// resetDiscoveryGuard() (called on server switch) clears it.
+				// --- Step 3b: Allow a warming remote OpenCode process to recover ---
+				// The outer EIGENT server may already be up while OpenCode is still starting.
+				// connectToOpenCode() starts a background health/SSE retry loop; wait for it
+				// for a bounded period instead of freezing discovery in "Server offline".
 				if (!appStore.get(serverConnectedAtom)) {
-					log.warn("Server is unreachable, skipping project discovery", {
+					setPhase("connecting")
+					log.info("Initial health probe failed; waiting for server recovery", {
 						server: activeServer.name,
+						timeoutMs: INITIAL_SERVER_RECOVERY_TIMEOUT_MS,
 					})
-					appStore.set(discoveryAtom, (prev) => ({
-						...prev,
-						loading: false,
-						error: "Server offline",
-						phase: "error",
-					}))
-					return
+					const recovered = await waitForInitialServerRecovery()
+					if (!recovered) {
+						log.warn("Server did not recover before discovery timeout", {
+							server: activeServer.name,
+						})
+						discoveryInFlight = false
+						appStore.set(discoveryAtom, (prev) => ({
+							...prev,
+							loading: false,
+							error: "Server offline",
+							phase: "error",
+						}))
+						return
+					}
+					log.info("Server recovered during discovery warmup", { server: activeServer.name })
 				}
 
 				// --- Step 4: Discover projects from the API ---
