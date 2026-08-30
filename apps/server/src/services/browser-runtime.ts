@@ -359,8 +359,7 @@ export class BrowserRuntime {
 	}
 
 	async status(): Promise<BrowserRuntimeStatus> {
-		const cdp = await this.cdpAvailable()
-		const worker = await this.workerAvailable()
+		const [cdp, worker] = await Promise.all([this.cdpAvailable(), this.workerAvailable()])
 		let tabs: BrowserTabInfo[] = []
 		if (worker) {
 			try {
