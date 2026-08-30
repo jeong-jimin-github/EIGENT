@@ -286,6 +286,22 @@ const HOP_BY_HOP_HEADERS = [
 	"upgrade",
 ] as const
 
+/**
+ * Bun may auto-compress a Response returned by the proxy. Because the upstream
+ * fetch is requested without Accept-Encoding, its body is plain bytes. Mark the
+ * returned response as identity-encoded and let Bun recalculate Content-Length;
+ * otherwise Bun can emit `Content-Encoding: gzip` for an uncompressed body, which
+ * Chromium rejects with ERR_CONTENT_DECODING_FAILED.
+ */
+function sanitizeOpenCodeResponseHeaders(source: Headers, status: number): Headers {
+	const headers = new Headers(source)
+	for (const header of HOP_BY_HOP_HEADERS) headers.delete(header)
+	headers.delete("content-length")
+	headers.delete("content-encoding")
+	if (status !== 204 && status !== 304) headers.set("content-encoding", "identity")
+	return headers
+}
+
 type OpenCodeProxyCacheEntry = {
 	status: number
 	statusText: string
@@ -306,7 +322,7 @@ function openCodeProxyCacheKey(targetUrl: URL, headers: Headers): string {
 }
 
 function responseFromOpenCodeCache(entry: OpenCodeProxyCacheEntry, cacheState: "HIT" | "STALE"): Response {
-	const headers = new Headers(entry.headers)
+	const headers = sanitizeOpenCodeResponseHeaders(new Headers(entry.headers), entry.status)
 	headers.set("X-EIGENT-OpenCode-Cache", cacheState)
 	return new Response(entry.body.slice(), {
 		status: entry.status,
@@ -317,8 +333,7 @@ function responseFromOpenCodeCache(entry: OpenCodeProxyCacheEntry, cacheState: "
 
 async function fetchOpenCodeCached(targetUrl: URL, headers: Headers): Promise<OpenCodeProxyCacheEntry> {
 	const upstream = await fetch(targetUrl, { method: "GET", headers, redirect: "manual" })
-	const responseHeaders = new Headers(upstream.headers)
-	for (const header of HOP_BY_HOP_HEADERS) responseHeaders.delete(header)
+	const responseHeaders = sanitizeOpenCodeResponseHeaders(upstream.headers, upstream.status)
 	const body = new Uint8Array(await upstream.arrayBuffer())
 	const entry: OpenCodeProxyCacheEntry = {
 		status: upstream.status,
@@ -406,8 +421,7 @@ app.all(`${OPENCODE_PROXY_PREFIX}/*`, async (c) => {
 			openCodeProxyCache.clear()
 		}
 
-		const responseHeaders = new Headers(upstream.headers)
-		for (const header of HOP_BY_HOP_HEADERS) responseHeaders.delete(header)
+		const responseHeaders = sanitizeOpenCodeResponseHeaders(upstream.headers, upstream.status)
 		return new Response(upstream.body, {
 			status: upstream.status,
 			statusText: upstream.statusText,
