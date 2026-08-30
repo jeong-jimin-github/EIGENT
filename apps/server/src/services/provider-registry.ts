@@ -1,5 +1,8 @@
 /** Provider registry and agent-session routing for EIGENT. */
 
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import os from "node:os"
+import path from "node:path"
 import { AnthropicCompatibleDriver } from "@eigent/agent-anthropic"
 import { AntigravityDriver } from "@eigent/agent-antigravity"
 import { ClaudeDriver } from "@eigent/agent-claude"
@@ -16,6 +19,22 @@ import type {
 import { OpenAICompatibleDriver, type OpenAIProtocol } from "@eigent/agent-openai"
 import { ensureAgentCliInstalled, resolveAgentCliExecutable } from "./agent-cli-installer"
 import { stateStore } from "./state"
+
+type PersistedProviderSnapshots = {
+	version: 1
+	refreshedAt: number
+	value: ProviderSnapshot[]
+}
+
+function providerSnapshotPath(): string {
+	const dataDir =
+		process.env.EIGENT_DATA_DIR ??
+		(process.env.XDG_DATA_HOME
+			? path.join(process.env.XDG_DATA_HOME, "eigent")
+			: path.join(os.homedir(), ".local", "share", "eigent"))
+	mkdirSync(dataDir, { recursive: true })
+	return path.join(dataDir, "provider-snapshots.json")
+}
 
 export interface ProviderSnapshot {
 	kind: AgentProviderKind
@@ -111,6 +130,21 @@ export class ProviderRegistry {
 	)
 
 	constructor() {
+		try {
+			const persisted = JSON.parse(readFileSync(providerSnapshotPath(), "utf8")) as PersistedProviderSnapshots
+			if (
+				persisted?.version === 1 &&
+				Number.isFinite(persisted.refreshedAt) &&
+				Array.isArray(persisted.value)
+			) {
+				this.snapshotCache = {
+					value: persisted.value,
+					refreshedAt: persisted.refreshedAt,
+				}
+			}
+		} catch {
+			// First boot or an old/corrupt cache: refresh lazily.
+		}
 		stateStore.markActiveAgentSessionsInterrupted()
 		for (const persisted of stateStore.listAgentSessions()) {
 			const driver = this.drivers.get(persisted.session.provider)
@@ -158,7 +192,20 @@ export class ProviderRegistry {
 				const [status, models] = await Promise.all([driver.getStatus(), driver.getModels()])
 				value.push({ kind, status, models })
 			}
-			this.snapshotCache = { value: this.cloneSnapshots(value), refreshedAt: Date.now() }
+			const refreshedAt = Date.now()
+			this.snapshotCache = { value: this.cloneSnapshots(value), refreshedAt }
+			try {
+				writeFileSync(
+					providerSnapshotPath(),
+					JSON.stringify({ version: 1, refreshedAt, value } satisfies PersistedProviderSnapshots),
+					{ encoding: "utf8", mode: 0o600 },
+				)
+			} catch (error) {
+				console.warn(
+					"Failed to persist provider snapshot cache:",
+					error instanceof Error ? error.message : error,
+				)
+			}
 			return this.cloneSnapshots(value)
 		})().finally(() => {
 			this.snapshotRefresh = null

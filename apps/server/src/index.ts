@@ -488,6 +488,15 @@ const idleTimeout = Number.isFinite(configuredIdleTimeout)
 console.log(`EIGENT server starting on http://${hostname}:${port}`)
 
 void ensureAgentClisInstalled()
+	.then(
+		() =>
+			new Promise<void>((resolve) =>
+				setTimeout(
+					resolve,
+					Math.max(0, Number(process.env.EIGENT_PROVIDER_WARMUP_DELAY_MS ?? "30000") || 30_000),
+				),
+			),
+	)
 	.then(() => providerRegistry.refreshSnapshots())
 	.then(() => console.log("Agent provider snapshot cache warmed"))
 	.catch((err) => {
