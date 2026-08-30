@@ -113,7 +113,7 @@ export async function ensureSingleServer(): Promise<OpenCodeServer> {
 	})
 
 	// Wait for the server to be ready
-	await waitForReady(url, 15_000)
+	await waitForReady(url, Number(process.env.EIGENT_OPENCODE_STARTUP_TIMEOUT_MS ?? "15000"))
 
 	console.log(`OpenCode server started at ${url} (pid ${proc.pid})`)
 	return server

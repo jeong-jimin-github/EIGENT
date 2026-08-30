@@ -273,6 +273,63 @@ app.get(
 	}),
 )
 
+const OPENCODE_PROXY_PREFIX = "/api/opencode"
+const HOP_BY_HOP_HEADERS = [
+	"connection",
+	"keep-alive",
+	"proxy-authenticate",
+	"proxy-authorization",
+	"te",
+	"trailer",
+	"transfer-encoding",
+	"upgrade",
+] as const
+
+// Browser deployments need a same-origin path to the loopback-only OpenCode
+// server. This proxy keeps port 4101 private while supporting normal JSON API
+// calls and streaming SSE responses used by the OpenCode SDK.
+app.all(`${OPENCODE_PROXY_PREFIX}/*`, async (c) => {
+	try {
+		const server = await ensureSingleServer()
+		const incomingUrl = new URL(c.req.url)
+		const targetUrl = new URL(server.url)
+		const suffix = incomingUrl.pathname.slice(OPENCODE_PROXY_PREFIX.length) || "/"
+		targetUrl.pathname = suffix.startsWith("/") ? suffix : `/${suffix}`
+		targetUrl.search = incomingUrl.search
+
+		const headers = new Headers(c.req.raw.headers)
+		for (const header of HOP_BY_HOP_HEADERS) headers.delete(header)
+		// The outer reverse proxy may use HTTP Basic Auth. Never forward that
+		// credential (or browser cookies/referrer) to the loopback OpenCode server.
+		headers.delete("authorization")
+		headers.delete("cookie")
+		headers.delete("host")
+		headers.delete("origin")
+		headers.delete("referer")
+		headers.delete("accept-encoding")
+
+		const method = c.req.method.toUpperCase()
+		const body = method === "GET" || method === "HEAD" ? undefined : await c.req.arrayBuffer()
+		const upstream = await fetch(targetUrl, {
+			method,
+			headers,
+			body,
+			redirect: "manual",
+		})
+
+		const responseHeaders = new Headers(upstream.headers)
+		for (const header of HOP_BY_HOP_HEADERS) responseHeaders.delete(header)
+		return new Response(upstream.body, {
+			status: upstream.status,
+			statusText: upstream.statusText,
+			headers: responseHeaders,
+		})
+	} catch (err) {
+		const message = err instanceof Error ? err.message : "OpenCode proxy failed"
+		return c.json({ error: message }, 502)
+	}
+})
+
 const routes = app
 	.route("/api/agents", agents)
 	.route("/api/browser", browser)
