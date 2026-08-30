@@ -14,7 +14,11 @@ import type {
 	StartSessionOptions,
 } from "@eigent/agent-core"
 import { OpenAICompatibleDriver, type OpenAIProtocol } from "@eigent/agent-openai"
-import { ensureAgentCliInstalled, ensureAgentClisInstalled } from "./agent-cli-installer"
+import {
+	ensureAgentCliInstalled,
+	ensureAgentClisInstalled,
+	resolveAgentCliExecutable,
+} from "./agent-cli-installer"
 import { stateStore } from "./state"
 
 export interface ProviderSnapshot {
@@ -42,13 +46,18 @@ function buildDrivers(): Map<AgentProviderKind, AgentDriver> {
 	drivers.set(
 		"codex",
 		new CodexDriver({
-			executable: process.env.EIGENT_CODEX_EXECUTABLE,
+			executable:
+				process.env.EIGENT_CODEX_EXECUTABLE || resolveAgentCliExecutable("codex") || undefined,
 			models: csv(process.env.EIGENT_CODEX_MODELS),
 		}),
 	)
 	drivers.set(
 		"antigravity",
 		new AntigravityDriver({
+			executable:
+				process.env.EIGENT_ANTIGRAVITY_EXECUTABLE ||
+				resolveAgentCliExecutable("antigravity") ||
+				undefined,
 			models: csv(process.env.EIGENT_ANTIGRAVITY_MODELS),
 			homeDir: process.env.EIGENT_ANTIGRAVITY_HOME,
 		}),
@@ -56,6 +65,8 @@ function buildDrivers(): Map<AgentProviderKind, AgentDriver> {
 	drivers.set(
 		"claude",
 		new ClaudeDriver({
+			executable:
+				process.env.EIGENT_CLAUDE_EXECUTABLE || resolveAgentCliExecutable("claude") || undefined,
 			models: csv(process.env.EIGENT_CLAUDE_MODELS).length
 				? csv(process.env.EIGENT_CLAUDE_MODELS)
 				: ["sonnet", "opus"],

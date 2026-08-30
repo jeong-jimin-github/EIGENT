@@ -1,4 +1,5 @@
 import { homedir } from "node:os"
+import { existsSync } from "node:fs"
 import path from "node:path"
 import type { AgentProviderKind } from "@eigent/agent-core"
 
@@ -41,6 +42,25 @@ ensureAgentInstallPath()
 function executableName(kind: InstallableAgentKind): string {
 	if (kind === "antigravity") return "agy"
 	return kind
+}
+
+function executableCandidates(kind: InstallableAgentKind): string[] {
+	const name = executableName(kind)
+	const names =
+		process.platform === "win32" ? [name, `${name}.exe`, `${name}.cmd`, `${name}.bat`] : [name]
+	return candidateBinDirs().flatMap((dir) => names.map((candidate) => path.join(dir, candidate)))
+}
+
+/**
+ * Resolve an installed CLI without relying only on Bun.which(). Bun caches the process startup
+ * PATH, so a CLI installed into a user-local bin directory after boot can remain invisible to
+ * Bun.which even after process.env.PATH is updated.
+ */
+export function resolveAgentCliExecutable(kind: AgentProviderKind): string | null {
+	if (!isInstallable(kind)) return null
+	const fromPath = Bun.which(executableName(kind))
+	if (fromPath) return fromPath
+	return executableCandidates(kind).find((candidate) => existsSync(candidate)) ?? null
 }
 
 function npmInstallCommand(packageName: string): string[] {
@@ -89,7 +109,7 @@ async function runInstaller(kind: InstallableAgentKind): Promise<string> {
 		throw new Error(`Automatic ${kind} CLI installation failed (${code}): ${detail}`)
 	}
 	ensureAgentInstallPath()
-	const executable = Bun.which(executableName(kind))
+	const executable = resolveAgentCliExecutable(kind)
 	if (!executable) throw new Error(`Automatic ${kind} CLI installation completed but executable was not found`)
 	console.log(`Agent CLI ${kind} installed at ${executable}`)
 	return executable
@@ -99,7 +119,7 @@ async function runInstaller(kind: InstallableAgentKind): Promise<string> {
 export async function ensureAgentCliInstalled(kind: AgentProviderKind): Promise<string | null> {
 	if (!isInstallable(kind)) return null
 	ensureAgentInstallPath()
-	const existing = Bun.which(executableName(kind))
+	const existing = resolveAgentCliExecutable(kind)
 	if (existing) return existing
 	if (process.env.EIGENT_AUTO_INSTALL_AGENTS === "false") return null
 

@@ -96,6 +96,7 @@ User=eigent
 Group=eigent
 WorkingDirectory=/opt/eigent
 Environment=HOME=/var/lib/eigent/home
+Environment=PATH=/var/lib/eigent/home/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EnvironmentFile=/etc/eigent/eigent.env
 ExecStart=/usr/local/bin/bun run apps/server/dist/index.js
 Restart=on-failure
@@ -114,7 +115,7 @@ ReadWritePaths=/var/lib/eigent /srv/eigent-workspaces
 WantedBy=multi-user.target
 ```
 
-Authenticate CLI providers as the `eigent` service user with `HOME=/var/lib/eigent/home`, so their writable auth/session state remains under the service data directory even with `ProtectHome=true`. Install provider executables in a system path (for example `/usr/local/bin`) or another path visible to the unit. For stronger isolation, run EIGENT in a VM/container whose only host bind mounts are `/var/lib/eigent` and `/srv/eigent-workspaces`; this preserves confirmation-free execution inside that sandbox without granting the agent the host filesystem.
+Authenticate CLI providers as the `eigent` service user with `HOME=/var/lib/eigent/home`, so their writable auth/session state remains under the service data directory even with `ProtectHome=true`. The example PATH includes the service user's `~/.local/bin`, which is also EIGENT's default automatic-install target on Linux. If you install provider executables somewhere else, keep that directory on the unit PATH or use an explicit executable override. For stronger isolation, run EIGENT in a VM/container whose only host bind mounts are `/var/lib/eigent` and `/srv/eigent-workspaces`; this preserves confirmation-free execution inside that sandbox without granting the agent the host filesystem.
 
 Enable it only after the production build succeeds:
 
