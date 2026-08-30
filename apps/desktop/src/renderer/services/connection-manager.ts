@@ -38,13 +38,14 @@ const log = createLogger("connection-manager")
 // ============================================================
 
 /**
- * Lightweight health probe: a single GET to /global/health with a 3s timeout.
+ * Lightweight health probe: a single GET to /global/health with a 10s timeout.
+ * Remote/self-hosted servers can briefly exceed 3s while OpenCode warms up or the host is under load.
  * Uses plain browser fetch (bypasses the SDK's retry wrapper and IPC proxy)
  * to avoid spamming the main process with failing requests when a server is down.
  */
 async function checkHealth(url: string, authHeader: string | null): Promise<boolean> {
 	const controller = new AbortController()
-	const timeout = setTimeout(() => controller.abort(), 3000)
+	const timeout = setTimeout(() => controller.abort(), 10_000)
 	try {
 		const headers: Record<string, string> = {}
 		if (authHeader) headers.Authorization = authHeader

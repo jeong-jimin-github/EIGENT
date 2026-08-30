@@ -48,11 +48,21 @@ export function useDiscovery() {
 	const discovery = useAtomValue(discoveryAtom)
 	const isMockMode = useAtomValue(isMockModeAtom)
 	const activeServer = useAtomValue(activeServerConfigAtom)
-	const { loaded, loading } = discovery
+	const serverConnected = useAtomValue(serverConnectedAtom)
+	const { loaded, loading, error } = discovery
 
 	useEffect(() => {
 		// In mock mode, atoms are hydrated by useMockMode() -- skip real discovery
 		if (isMockMode) return
+
+		// A slow or warming remote server can fail the first health probe while the
+		// connection manager keeps retrying in the background. Once that loop marks
+		// the server connected, release the offline discovery guard and continue
+		// without requiring a manual refresh or server switch.
+		if (discoveryInFlight && serverConnected && error === "Server offline") {
+			discoveryInFlight = false
+		}
+
 		if (loaded || loading || discoveryInFlight) return
 		discoveryInFlight = true
 
@@ -170,5 +180,5 @@ export function useDiscovery() {
 				}))
 			}
 		})()
-	}, [loaded, loading, isMockMode, activeServer])
+	}, [loaded, loading, error, isMockMode, activeServer, serverConnected])
 }
