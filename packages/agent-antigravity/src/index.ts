@@ -288,7 +288,10 @@ export class AntigravityDriver implements AgentDriver {
 					parsed.step_update?.conversation_id ??
 					parsed.result?.conversation_id
 				if (conversationId) session.conversationId = conversationId
-				if (parsed.event === "result") sawResult = true
+				if (parsed.event === "result") {
+					sawResult = true
+					if (parsed.result?.status?.toUpperCase() === "SUCCESS") this.lastAuthFailure = null
+				}
 				for (const event of antigravityEvent(parsed)) {
 					if (event.type === "error" && /auth|log(?:ged)? in|credential/i.test(event.message)) {
 						this.lastAuthFailure = event.message
@@ -399,12 +402,13 @@ export class AntigravityDriver implements AgentDriver {
 		if (this.lastAuthFailure) {
 			return { available: true, authenticated: false, detail: this.lastAuthFailure }
 		}
-		const version = await capture([executable, "--version"], 2_000, process.cwd(), this.spawnEnv())
-		const versionText = version.stdout.trim() || version.stderr.trim() || "installed"
+		// There is no cheap documented auth-status command. `agy --version` starts a
+		// large native process and adds seconds of latency without validating login,
+		// so authentication is validated on a real run and failures are remembered.
 		return {
 			available: true,
 			authenticated: true,
-			detail: `Antigravity CLI ${versionText}; cached keyring auth is validated on agent runs`,
+			detail: "Antigravity CLI installed; cached keyring auth is validated on agent runs",
 		}
 	}
 }

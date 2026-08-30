@@ -215,6 +215,15 @@ export class BrowserRuntime {
 			"--disable-popup-blocking",
 			"--restore-last-session",
 		]
+		if (process.env.EIGENT_BROWSER_LOW_MEMORY === "true") {
+			args.push(
+				"--renderer-process-limit=2",
+				"--disable-background-networking",
+				"--disable-component-update",
+				"--disable-sync",
+				"--no-service-autorun",
+			)
+		}
 		if (this.config.headless) args.push("--headless=new", "--disable-gpu")
 		if (
 			process.platform === "linux" &&

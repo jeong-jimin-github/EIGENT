@@ -39,6 +39,18 @@ export interface PersistedUnifiedAgentEvent extends SequencedAgentEvent {
 	createdAt: number
 }
 
+const AGENT_PROVIDER_CACHE_MS = 60_000
+let agentProviderCache: { value: AgentProviderSnapshot[]; storedAt: number } | null = null
+let agentProviderRequest: Promise<AgentProviderSnapshot[]> | null = null
+
+function cloneAgentProviders(value: AgentProviderSnapshot[]): AgentProviderSnapshot[] {
+	return value.map((provider) => ({
+		...provider,
+		status: { ...provider.status },
+		models: provider.models.map((model) => ({ ...model })),
+	}))
+}
+
 export interface UnifiedAgentSession {
 	id: string
 	provider: Exclude<AgentRuntimeProvider, "opencode">
@@ -61,10 +73,35 @@ async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export async function fetchAgentProviders(signal?: AbortSignal): Promise<AgentProviderSnapshot[]> {
-	const data = await jsonRequest<{ providers: AgentProviderSnapshot[] }>("/api/agents/providers", {
-		signal,
-	})
-	return data.providers
+	if (agentProviderCache && Date.now() - agentProviderCache.storedAt <= AGENT_PROVIDER_CACHE_MS) {
+		return cloneAgentProviders(agentProviderCache.value)
+	}
+	if (!agentProviderRequest) {
+		agentProviderRequest = jsonRequest<{ providers: AgentProviderSnapshot[] }>(
+			"/api/agents/providers",
+		)
+			.then((data) => {
+				agentProviderCache = { value: cloneAgentProviders(data.providers), storedAt: Date.now() }
+				return cloneAgentProviders(data.providers)
+			})
+			.finally(() => {
+				agentProviderRequest = null
+			})
+	}
+	if (!signal) return cloneAgentProviders(await agentProviderRequest)
+	if (signal.aborted) throw new DOMException("Aborted", "AbortError")
+	return cloneAgentProviders(
+		await Promise.race([
+			agentProviderRequest,
+			new Promise<never>((_, reject) => {
+				signal.addEventListener(
+					"abort",
+					() => reject(new DOMException("Aborted", "AbortError")),
+					{ once: true },
+				)
+			}),
+		]),
+	)
 }
 
 export async function fetchUnifiedAgentEvents(

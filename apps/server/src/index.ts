@@ -18,6 +18,7 @@ import workspace from "./routes/workspace"
 import { ensureAgentCliInstalled, ensureAgentClisInstalled } from "./services/agent-cli-installer"
 import { browserRuntime } from "./services/browser-runtime"
 import { desktopRuntime } from "./services/desktop-runtime"
+import { providerRegistry } from "./services/provider-registry"
 import {
 	consumeMutationRateLimit,
 	isAllowedHost,
@@ -486,9 +487,12 @@ const idleTimeout = Number.isFinite(configuredIdleTimeout)
 
 console.log(`EIGENT server starting on http://${hostname}:${port}`)
 
-void ensureAgentClisInstalled().catch((err) => {
-	console.warn("Automatic agent CLI installation failed:", err instanceof Error ? err.message : err)
-})
+void ensureAgentClisInstalled()
+	.then(() => providerRegistry.refreshSnapshots())
+	.then(() => console.log("Agent provider snapshot cache warmed"))
+	.catch((err) => {
+		console.warn("Automatic agent CLI/provider warmup failed:", err instanceof Error ? err.message : err)
+	})
 
 void (async () => {
 	if (desktopRuntime.getConfig().enabled) {

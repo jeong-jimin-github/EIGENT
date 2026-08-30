@@ -14,11 +14,7 @@ import type {
 	StartSessionOptions,
 } from "@eigent/agent-core"
 import { OpenAICompatibleDriver, type OpenAIProtocol } from "@eigent/agent-openai"
-import {
-	ensureAgentCliInstalled,
-	ensureAgentClisInstalled,
-	resolveAgentCliExecutable,
-} from "./agent-cli-installer"
+import { ensureAgentCliInstalled, resolveAgentCliExecutable } from "./agent-cli-installer"
 import { stateStore } from "./state"
 
 export interface ProviderSnapshot {
@@ -107,6 +103,12 @@ function buildDrivers(): Map<AgentProviderKind, AgentDriver> {
 export class ProviderRegistry {
 	private readonly drivers = buildDrivers()
 	private readonly sessions = new Map<string, RoutedSession>()
+	private snapshotCache: { value: ProviderSnapshot[]; refreshedAt: number } | null = null
+	private snapshotRefresh: Promise<ProviderSnapshot[]> | null = null
+	private readonly snapshotTtlMs = Math.max(
+		5_000,
+		Number(process.env.EIGENT_PROVIDER_SNAPSHOT_TTL_MS ?? "60000") || 60_000,
+	)
 
 	constructor() {
 		stateStore.markActiveAgentSessionsInterrupted()
@@ -135,14 +137,47 @@ export class ProviderRegistry {
 		return driver
 	}
 
-	async snapshots(): Promise<ProviderSnapshot[]> {
-		await ensureAgentClisInstalled()
-		return Promise.all(
-			[...this.drivers.entries()].map(async ([kind, driver]) => {
+	private cloneSnapshots(value: ProviderSnapshot[]): ProviderSnapshot[] {
+		return value.map((snapshot) => ({
+			...snapshot,
+			status: { ...snapshot.status },
+			models: snapshot.models.map((model) => ({ ...model })),
+		}))
+	}
+
+	/**
+	 * Native CLI status checks are expensive on the 1 GB free-tier VM. Keep a
+	 * shared snapshot and serve stale data immediately while a background refresh
+	 * runs. Providers are refreshed sequentially to limit peak memory pressure.
+	 */
+	async refreshSnapshots(): Promise<ProviderSnapshot[]> {
+		if (this.snapshotRefresh) return this.snapshotRefresh
+		this.snapshotRefresh = (async () => {
+			const value: ProviderSnapshot[] = []
+			for (const [kind, driver] of this.drivers.entries()) {
 				const [status, models] = await Promise.all([driver.getStatus(), driver.getModels()])
-				return { kind, status, models }
-			}),
-		)
+				value.push({ kind, status, models })
+			}
+			this.snapshotCache = { value: this.cloneSnapshots(value), refreshedAt: Date.now() }
+			return this.cloneSnapshots(value)
+		})().finally(() => {
+			this.snapshotRefresh = null
+		})
+		return this.snapshotRefresh
+	}
+
+	async snapshots(): Promise<ProviderSnapshot[]> {
+		const cached = this.snapshotCache
+		if (!cached) return this.refreshSnapshots()
+		if (Date.now() - cached.refreshedAt > this.snapshotTtlMs && !this.snapshotRefresh) {
+			void this.refreshSnapshots().catch((error) => {
+				console.warn(
+					"Provider snapshot refresh failed:",
+					error instanceof Error ? error.message : error,
+				)
+			})
+		}
+		return this.cloneSnapshots(cached.value)
 	}
 
 	async start(kind: AgentProviderKind, options: StartSessionOptions): Promise<AgentSession> {
