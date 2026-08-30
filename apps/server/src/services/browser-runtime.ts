@@ -183,7 +183,9 @@ export class BrowserRuntime {
 	}
 	private async cdpAvailable(): Promise<boolean> {
 		try {
-			return (await fetch(`${this.cdpUrl()}/json/version`, { signal: AbortSignal.timeout(750) })).ok
+			return (
+				await fetch(`${this.cdpUrl()}/json/version`, { signal: AbortSignal.timeout(3_000) })
+			).ok
 		} catch {
 			return false
 		}
@@ -191,7 +193,7 @@ export class BrowserRuntime {
 	private async workerAvailable(): Promise<boolean> {
 		try {
 			const response = await fetch(`${this.workerUrl()}/health`, {
-				signal: AbortSignal.timeout(750),
+				signal: AbortSignal.timeout(3_000),
 			})
 			if (!response.ok) return false
 			const body = (await response.json()) as { service?: string }

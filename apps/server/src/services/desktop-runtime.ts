@@ -102,7 +102,7 @@ export function commandPath(command: string): string | undefined {
 		.find(Boolean)
 }
 
-function tcpAvailable(host: string, port: number, timeoutMs = 500): Promise<boolean> {
+function tcpAvailable(host: string, port: number, timeoutMs = 2_000): Promise<boolean> {
 	return new Promise((resolve) => {
 		const socket = net.createConnection({ host, port })
 		let settled = false
