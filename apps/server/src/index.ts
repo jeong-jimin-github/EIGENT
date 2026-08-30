@@ -15,7 +15,7 @@ import recovery from "./routes/recovery"
 import servers from "./routes/servers"
 import tasks from "./routes/tasks"
 import workspace from "./routes/workspace"
-import { ensureAgentClisInstalled } from "./services/agent-cli-installer"
+import { ensureAgentCliInstalled, ensureAgentClisInstalled } from "./services/agent-cli-installer"
 import { browserRuntime } from "./services/browser-runtime"
 import { desktopRuntime } from "./services/desktop-runtime"
 import {
@@ -409,12 +409,13 @@ void (async () => {
 	}
 })()
 
-ensureSingleServer()
+ensureAgentCliInstalled("opencode")
+	.then(() => ensureSingleServer())
 	.then((server) => {
 		console.log(`OpenCode server ready at ${server.url}`)
 	})
 	.catch((err) => {
-		console.error("Failed to start OpenCode server on boot:", err)
+		console.error("Failed to install/start OpenCode server on boot:", err)
 	})
 
 export default {

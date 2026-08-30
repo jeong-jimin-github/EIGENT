@@ -2,9 +2,9 @@ import { homedir } from "node:os"
 import path from "node:path"
 import type { AgentProviderKind } from "@eigent/agent-core"
 
-type InstallableAgentKind = "codex" | "claude" | "antigravity"
+type InstallableAgentKind = "codex" | "claude" | "antigravity" | "opencode"
 
-const INSTALLABLE: InstallableAgentKind[] = ["codex", "claude", "antigravity"]
+const INSTALLABLE: InstallableAgentKind[] = ["codex", "claude", "antigravity", "opencode"]
 const activeInstalls = new Map<InstallableAgentKind, Promise<string>>()
 const failureAt = new Map<InstallableAgentKind, number>()
 const FAILURE_RETRY_MS = 5 * 60_000
@@ -51,19 +51,21 @@ function npmInstallCommand(packageName: string): string[] {
 function installCommand(kind: InstallableAgentKind): string[] {
 	if (kind === "codex") return npmInstallCommand("@openai/codex@latest")
 	if (kind === "claude") return npmInstallCommand("@anthropic-ai/claude-code@latest")
+	if (kind === "opencode") return npmInstallCommand("opencode-ai@latest")
+	const binDir = path.join(installPrefix(), "bin")
 	if (process.platform === "win32") {
 		return [
 			"cmd.exe",
 			"/d",
 			"/s",
 			"/c",
-			"curl -fsSL https://antigravity.google/cli/install.cmd -o %TEMP%\eigent-agy-install.cmd && call %TEMP%\eigent-agy-install.cmd --skip-path && del %TEMP%\eigent-agy-install.cmd",
+			`curl -fsSL https://antigravity.google/cli/install.cmd -o "%TEMP%\eigent-agy-install.cmd" && call "%TEMP%\eigent-agy-install.cmd" --dir "${binDir}" && del /q "%TEMP%\eigent-agy-install.cmd"`,
 		]
 	}
 	return [
 		"/bin/bash",
 		"-lc",
-		"curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --skip-path",
+		`curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir ${JSON.stringify(binDir)}`,
 	]
 }
 
