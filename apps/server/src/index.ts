@@ -377,6 +377,10 @@ app.get("*", async (c) => {
 
 const port = Number(process.env.PORT) || 3100
 const hostname = process.env.HOST || "0.0.0.0"
+const configuredIdleTimeout = Number(process.env.EIGENT_HTTP_IDLE_TIMEOUT_SECONDS ?? "120")
+const idleTimeout = Number.isFinite(configuredIdleTimeout)
+	? Math.min(255, Math.max(0, Math.trunc(configuredIdleTimeout)))
+	: 120
 
 console.log(`EIGENT server starting on http://${hostname}:${port}`)
 
@@ -421,6 +425,7 @@ ensureAgentCliInstalled("opencode")
 export default {
 	hostname,
 	port,
+	idleTimeout,
 	maxRequestBodySize: maxRequestBytes(),
 	fetch: app.fetch,
 	websocket,

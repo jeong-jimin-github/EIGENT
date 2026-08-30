@@ -50,6 +50,7 @@ Create `/etc/eigent/eigent.env` with mode `0600`. Example:
 ```dotenv
 HOST=127.0.0.1
 PORT=3100
+EIGENT_HTTP_IDLE_TIMEOUT_SECONDS=120
 EIGENT_DATA_DIR=/var/lib/eigent
 EIGENT_STATE_DB=/var/lib/eigent/eigent.db
 
