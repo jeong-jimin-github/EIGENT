@@ -15,6 +15,7 @@ import recovery from "./routes/recovery"
 import servers from "./routes/servers"
 import tasks from "./routes/tasks"
 import workspace from "./routes/workspace"
+import { ensureAgentClisInstalled } from "./services/agent-cli-installer"
 import { browserRuntime } from "./services/browser-runtime"
 import { desktopRuntime } from "./services/desktop-runtime"
 import {
@@ -378,6 +379,10 @@ const port = Number(process.env.PORT) || 3100
 const hostname = process.env.HOST || "0.0.0.0"
 
 console.log(`EIGENT server starting on http://${hostname}:${port}`)
+
+void ensureAgentClisInstalled().catch((err) => {
+	console.warn("Automatic agent CLI installation failed:", err instanceof Error ? err.message : err)
+})
 
 void (async () => {
 	if (desktopRuntime.getConfig().enabled) {

@@ -14,6 +14,7 @@ import type {
 	StartSessionOptions,
 } from "@eigent/agent-core"
 import { OpenAICompatibleDriver, type OpenAIProtocol } from "@eigent/agent-openai"
+import { ensureAgentCliInstalled, ensureAgentClisInstalled } from "./agent-cli-installer"
 import { stateStore } from "./state"
 
 export interface ProviderSnapshot {
@@ -124,6 +125,7 @@ export class ProviderRegistry {
 	}
 
 	async snapshots(): Promise<ProviderSnapshot[]> {
+		await ensureAgentClisInstalled()
 		return Promise.all(
 			[...this.drivers.entries()].map(async ([kind, driver]) => {
 				const [status, models] = await Promise.all([driver.getStatus(), driver.getModels()])
@@ -133,6 +135,7 @@ export class ProviderRegistry {
 	}
 
 	async start(kind: AgentProviderKind, options: StartSessionOptions): Promise<AgentSession> {
+		await ensureAgentCliInstalled(kind)
 		if (options.taskId) {
 			const task = stateStore.getTask(options.taskId)
 			if (!task) throw new Error(`Unknown task: ${options.taskId}`)

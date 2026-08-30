@@ -15,13 +15,13 @@ function errorMessage(err: unknown): string {
 
 const app = new Hono()
 	.get("/providers", async (c) => c.json({ providers: await providerRegistry.snapshots() }, 200))
-	.post("/providers/:provider/auth", (c) => {
+	.post("/providers/:provider/auth", async (c) => {
 		const provider = c.req.param("provider")
 		if (provider !== "codex" && provider !== "claude") {
 			return c.json({ error: "Only codex and claude use interactive CLI auth" }, 400)
 		}
 		try {
-			return c.json(startProviderAuth(provider), 202)
+			return c.json(await startProviderAuth(provider), 202)
 		} catch (err) {
 			return c.json({ error: errorMessage(err) }, 400)
 		}

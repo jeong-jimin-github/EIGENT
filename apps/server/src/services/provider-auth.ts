@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto"
 import { existsSync } from "node:fs"
 import path from "node:path"
 import { claudeSubscriptionEnvironment } from "@eigent/agent-claude"
+import { ensureAgentCliInstalled } from "./agent-cli-installer"
 
 export interface ProviderAuthTask {
 	id: string
@@ -61,7 +62,8 @@ function providerEnvironment(
 	}
 }
 
-export function startProviderAuth(provider: "codex" | "claude"): ProviderAuthTask {
+export async function startProviderAuth(provider: "codex" | "claude"): Promise<ProviderAuthTask> {
+	await ensureAgentCliInstalled(provider)
 	const executable = resolveProviderExecutable(provider)
 	if (!executable)
 		throw new Error(`${provider === "codex" ? "Codex CLI" : "Claude Code"} is not installed`)
