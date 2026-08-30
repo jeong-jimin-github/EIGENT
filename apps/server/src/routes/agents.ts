@@ -7,7 +7,7 @@ import { cancelProviderAuth, getProviderAuth, startProviderAuth } from "../servi
 import { providerRegistry } from "../services/provider-registry"
 import { stateStore } from "../services/state"
 import { webPushService } from "../services/web-push"
-import { assertWorkspaceAllowed } from "../services/workspace-policy"
+import { assertWorkspaceAllowed, defaultNoProjectWorkspace } from "../services/workspace-policy"
 
 function errorMessage(err: unknown): string {
 	return err instanceof Error ? err.message : String(err)
@@ -55,11 +55,13 @@ const app = new Hono()
 			systemPrompt?: string
 			uiSessionId?: string
 		}
-		if (!body.provider || !body.workspace || !body.model) {
-			return c.json({ error: "provider, workspace and model are required" }, 400)
+		if (!body.provider || !body.model) {
+			return c.json({ error: "provider and model are required" }, 400)
 		}
 		try {
-			const workspace = assertWorkspaceAllowed(body.workspace)
+			const workspace = body.workspace?.trim()
+				? assertWorkspaceAllowed(body.workspace.trim())
+				: defaultNoProjectWorkspace()
 			const session = await providerRegistry.start(body.provider, {
 				workspace,
 				taskId: body.taskId,

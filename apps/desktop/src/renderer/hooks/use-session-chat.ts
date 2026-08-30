@@ -88,10 +88,15 @@ export function useSessionChat(
 					return
 				}
 
-				const result = await client.session.messages({
-					sessionID: sid,
-					limit: INITIAL_LIMIT,
-				})
+				const result = await Promise.race([
+					client.session.messages({
+						sessionID: sid,
+						limit: INITIAL_LIMIT,
+					}),
+					new Promise<never>((_, reject) =>
+						setTimeout(() => reject(new Error("Timed out loading chat messages")), 20_000),
+					),
+				])
 				const raw = (result.data ?? []) as Array<{ info: Message; parts: Part[] }>
 				hasEarlierRef.current = raw.length >= INITIAL_LIMIT
 

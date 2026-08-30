@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs"
+import { mkdirSync, realpathSync } from "node:fs"
 import path from "node:path"
 
 function splitCsv(value: string | undefined): string[] {
@@ -44,4 +44,17 @@ export function assertWorkspaceAllowed(input: string, label = "workspace"): stri
 		throw new Error(`${label} is outside EIGENT_WORKSPACE_ROOTS`)
 	}
 	return input
+}
+
+/** Safe working directory for agent runtimes launched from the UI's No Project scope. */
+export function defaultNoProjectWorkspace(): string {
+	const configuredRoot = configuredWorkspaceRoots()[0]
+	const fallbackRoot = path.resolve(
+		process.env.EIGENT_DATA_DIR ?? process.env.HOME ?? process.cwd(),
+		"workspaces",
+	)
+	const root = configuredRoot ?? fallbackRoot
+	const workspace = path.join(root, "_no-project")
+	mkdirSync(workspace, { recursive: true })
+	return assertWorkspaceAllowed(workspace, "default no-project workspace")
 }

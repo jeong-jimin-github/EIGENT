@@ -85,7 +85,7 @@ export async function hydrateUnifiedAgentHistory(args: {
 	if (
 		session.provider !== args.runtime.provider ||
 		session.model !== args.runtime.model ||
-		session.workspace !== args.workspace
+		(args.workspace && session.workspace !== args.workspace)
 	) {
 		return { lastSequence: 0 }
 	}
@@ -287,7 +287,7 @@ export async function sendUnifiedAgentPrompt(args: {
 			const matchesRuntime =
 				session.provider === args.runtime.provider &&
 				session.model === args.runtime.model &&
-				session.workspace === args.workspace
+				(!args.workspace || session.workspace === args.workspace)
 			if (!matchesRuntime) {
 				agentSessionId = undefined
 			} else if (session.state === "interrupted" || session.state === "failed") {
@@ -299,23 +299,8 @@ export async function sendUnifiedAgentPrompt(args: {
 		}
 	}
 
-	if (!agentSessionId) {
-		const session = await createUnifiedAgentSession({
-			provider: args.runtime.provider,
-			workspace: args.workspace,
-			model: args.runtime.model,
-			yolo: true,
-			uiSessionId: args.uiSessionId,
-		})
-		agentSessionId = session.id
-		args.onAgentSession?.(agentSessionId)
-	}
-
-	const controller = new AbortController()
-	activeRuns.set(args.uiSessionId, { agentSessionId, controller })
-	setBusy(args.uiSessionId, true)
-	appStore.set(setSessionErrorAtom, { sessionId: args.uiSessionId, error: undefined })
-
+	// Project the user's message immediately. Session/provider startup may fail or
+	// take several seconds on a small VPS; the user's submitted text must never disappear.
 	const stamp = Date.now()
 	const nonce = crypto.randomUUID()
 	const userId = `optimistic-${stamp}-0-${nonce}`
@@ -358,6 +343,32 @@ export async function sendUnifiedAgentPrompt(args: {
 		time: { start: now, end: now },
 	} satisfies TextPart)
 	appStore.set(upsertMessageAtom, assistant)
+
+	try {
+		if (!agentSessionId) {
+			const session = await createUnifiedAgentSession({
+				provider: args.runtime.provider,
+				workspace: args.workspace,
+				model: args.runtime.model,
+				yolo: true,
+				uiSessionId: args.uiSessionId,
+			})
+			agentSessionId = session.id
+			args.onAgentSession?.(agentSessionId)
+		}
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error)
+		setError(args.uiSessionId, message)
+		setBusy(args.uiSessionId, false)
+		assistant = { ...assistant, time: { ...assistant.time, completed: Date.now() } }
+		appStore.set(upsertMessageAtom, assistant)
+		throw error
+	}
+
+	const controller = new AbortController()
+	activeRuns.set(args.uiSessionId, { agentSessionId, controller })
+	setBusy(args.uiSessionId, true)
+	appStore.set(setSessionErrorAtom, { sessionId: args.uiSessionId, error: undefined })
 
 	let hasText = false
 	let hasReasoning = false
