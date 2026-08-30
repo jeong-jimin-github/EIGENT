@@ -121,16 +121,14 @@ export function ProviderSettings() {
 		error,
 		reload: reloadCatalog,
 	} = useAllProviders()
-	const {
-		data: connectedInfo,
-		loading: connectedLoading,
-		reload: reloadConnected,
-	} = useConnectedProviders()
+	const { data: connectedInfo, reload: reloadConnected } = useConnectedProviders()
 	const { data: authMethods } = useProviderAuthMethods()
 	const [connectDialogProvider, setConnectDialogProvider] = useState<CatalogProvider | null>(null)
 	const [catalogOpen, setCatalogOpen] = useState(false)
 
-	const loading = catalogLoading || connectedLoading
+	// The catalog is the primary page data. Connected-source metadata is auxiliary;
+	// do not blank the entire page while it is retrying on a slow remote server.
+	const loading = catalogLoading && !allProviders
 
 	const reload = useCallback(() => {
 		reloadCatalog()

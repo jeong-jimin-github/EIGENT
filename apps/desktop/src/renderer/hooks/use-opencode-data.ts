@@ -174,11 +174,12 @@ export function useProviders(directory: string | null): {
 	const isMockMode = useAtomValue(isMockModeAtom)
 	const queryClient = useQueryClient()
 
+	const scope = directory ?? ""
 	const { data, isLoading, error } = useQuery({
-		queryKey: queryKeys.providers(directory ?? ""),
+		queryKey: queryKeys.providers(scope),
 		queryFn: async (): Promise<ProvidersData> => {
-			const client = getProjectClient(directory ?? "")
-			if (!client) throw new Error("No client for directory")
+			const client = getProjectClient(scope)
+			if (!client) throw new Error("No client for provider scope")
 			const result = await client.config.providers()
 			const raw = result.data as {
 				providers: SdkProvider[]
@@ -189,17 +190,20 @@ export function useProviders(directory: string | null): {
 				defaults: raw.default ?? {},
 			}
 		},
-		enabled: directory !== null && connected && !isMockMode,
+		// No Project is a valid global scope and must still expose models.
+		enabled: connected && !isMockMode,
+		// Provider/model data is essential UI state. Retry transient VPS/network
+		// stalls more aggressively and keep the last successful value visible.
+		retry: 4,
+		retryDelay: (attempt) => Math.min(750 * 2 ** attempt, 6_000),
 	})
 
 	const reload = useCallback(() => {
-		if (directory !== null) {
-			queryClient.invalidateQueries({ queryKey: queryKeys.providers(directory) })
-		}
-	}, [directory, queryClient])
+		queryClient.invalidateQueries({ queryKey: queryKeys.providers(scope) })
+	}, [scope, queryClient])
 
 	// Return mock data if in mock mode
-	if (isMockMode && directory !== null) {
+	if (isMockMode) {
 		return {
 			data: MOCK_PROVIDERS as unknown as ProvidersData,
 			loading: false,
@@ -499,6 +503,8 @@ export function useAllProviders(): {
 			}
 		},
 		enabled: connected && !isMockMode,
+		retry: 4,
+		retryDelay: (attempt) => Math.min(750 * 2 ** attempt, 6_000),
 	})
 
 	const reload = useCallback(() => {
@@ -550,6 +556,8 @@ export function useConnectedProviders(): {
 			return map
 		},
 		enabled: connected && !isMockMode,
+		retry: 4,
+		retryDelay: (attempt) => Math.min(750 * 2 ** attempt, 6_000),
 	})
 
 	const reload = useCallback(() => {
@@ -585,6 +593,8 @@ export function useProviderAuthMethods(): {
 			return (result.data ?? {}) as Record<string, SdkProviderAuthMethod[]>
 		},
 		enabled: connected && !isMockMode,
+		retry: 4,
+		retryDelay: (attempt) => Math.min(750 * 2 ** attempt, 6_000),
 	})
 
 	return {

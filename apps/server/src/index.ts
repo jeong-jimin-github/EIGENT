@@ -286,6 +286,74 @@ const HOP_BY_HOP_HEADERS = [
 	"upgrade",
 ] as const
 
+type OpenCodeProxyCacheEntry = {
+	status: number
+	statusText: string
+	headers: [string, string][]
+	body: Uint8Array
+	storedAt: number
+}
+
+const OPENCODE_CACHEABLE_PATHS = new Set(["/provider", "/provider/", "/config/providers"])
+const OPENCODE_PROXY_CACHE_FRESH_MS = 30_000
+const OPENCODE_PROXY_CACHE_STALE_MS = 10 * 60_000
+const openCodeProxyCache = new Map<string, OpenCodeProxyCacheEntry>()
+const openCodeProxyRefreshes = new Map<string, Promise<void>>()
+
+function openCodeProxyCacheKey(targetUrl: URL, headers: Headers): string {
+	const directory = headers.get("x-opencode-directory") ?? ""
+	return `${targetUrl.pathname}${targetUrl.search}::${directory}`
+}
+
+function responseFromOpenCodeCache(entry: OpenCodeProxyCacheEntry, cacheState: "HIT" | "STALE"): Response {
+	const headers = new Headers(entry.headers)
+	headers.set("X-EIGENT-OpenCode-Cache", cacheState)
+	return new Response(entry.body.slice(), {
+		status: entry.status,
+		statusText: entry.statusText,
+		headers,
+	})
+}
+
+async function fetchOpenCodeCached(targetUrl: URL, headers: Headers): Promise<OpenCodeProxyCacheEntry> {
+	const upstream = await fetch(targetUrl, { method: "GET", headers, redirect: "manual" })
+	const responseHeaders = new Headers(upstream.headers)
+	for (const header of HOP_BY_HOP_HEADERS) responseHeaders.delete(header)
+	const body = new Uint8Array(await upstream.arrayBuffer())
+	const entry: OpenCodeProxyCacheEntry = {
+		status: upstream.status,
+		statusText: upstream.statusText,
+		headers: [...responseHeaders.entries()],
+		body,
+		storedAt: Date.now(),
+	}
+	if (upstream.ok) openCodeProxyCache.set(openCodeProxyCacheKey(targetUrl, headers), entry)
+	return entry
+}
+
+function refreshOpenCodeCache(targetUrl: URL, headers: Headers): void {
+	const key = openCodeProxyCacheKey(targetUrl, headers)
+	if (openCodeProxyRefreshes.has(key)) return
+	const refresh = fetchOpenCodeCached(targetUrl, headers)
+		.then(() => undefined)
+		.catch((err) => console.warn(`OpenCode cache refresh failed for ${targetUrl.pathname}:`, err))
+		.finally(() => openCodeProxyRefreshes.delete(key))
+	openCodeProxyRefreshes.set(key, refresh)
+}
+
+async function warmOpenCodeProviderCache(serverUrl: string): Promise<void> {
+	const headers = new Headers({ accept: "application/json" })
+	for (const pathname of ["/provider", "/config/providers"]) {
+		const targetUrl = new URL(pathname, serverUrl)
+		try {
+			await fetchOpenCodeCached(targetUrl, headers)
+			console.log(`OpenCode proxy cache warmed: ${pathname}`)
+		} catch (err) {
+			console.warn(`OpenCode proxy cache warm failed for ${pathname}:`, err)
+		}
+	}
+}
+
 // Browser deployments need a same-origin path to the loopback-only OpenCode
 // server. This proxy keeps port 4101 private while supporting normal JSON API
 // calls and streaming SSE responses used by the OpenCode SDK.
@@ -310,6 +378,22 @@ app.all(`${OPENCODE_PROXY_PREFIX}/*`, async (c) => {
 		headers.delete("accept-encoding")
 
 		const method = c.req.method.toUpperCase()
+		const cacheable = method === "GET" && OPENCODE_CACHEABLE_PATHS.has(targetUrl.pathname)
+		if (cacheable) {
+			const key = openCodeProxyCacheKey(targetUrl, headers)
+			const cached = openCodeProxyCache.get(key)
+			if (cached) {
+				const age = Date.now() - cached.storedAt
+				if (age <= OPENCODE_PROXY_CACHE_STALE_MS) {
+					if (age > OPENCODE_PROXY_CACHE_FRESH_MS) refreshOpenCodeCache(targetUrl, headers)
+					return responseFromOpenCodeCache(cached, age > OPENCODE_PROXY_CACHE_FRESH_MS ? "STALE" : "HIT")
+				}
+				openCodeProxyCache.delete(key)
+			}
+			const entry = await fetchOpenCodeCached(targetUrl, headers)
+			return responseFromOpenCodeCache(entry, "HIT")
+		}
+
 		const body = method === "GET" || method === "HEAD" ? undefined : await c.req.arrayBuffer()
 		const upstream = await fetch(targetUrl, {
 			method,
@@ -317,6 +401,10 @@ app.all(`${OPENCODE_PROXY_PREFIX}/*`, async (c) => {
 			body,
 			redirect: "manual",
 		})
+
+		if (!["GET", "HEAD", "OPTIONS"].includes(method) && upstream.ok) {
+			openCodeProxyCache.clear()
+		}
 
 		const responseHeaders = new Headers(upstream.headers)
 		for (const header of HOP_BY_HOP_HEADERS) responseHeaders.delete(header)
@@ -417,6 +505,7 @@ ensureAgentCliInstalled("opencode")
 	.then(() => ensureSingleServer())
 	.then((server) => {
 		console.log(`OpenCode server ready at ${server.url}`)
+		void warmOpenCodeProviderCache(server.url)
 	})
 	.catch((err) => {
 		console.error("Failed to install/start OpenCode server on boot:", err)
