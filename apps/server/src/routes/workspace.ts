@@ -1,4 +1,5 @@
 import { Hono } from "hono"
+import { resolveWorkspaceScope } from "../services/workspace-policy"
 import {
 	createProjectDirectory,
 	createWorkspaceDirectory,
@@ -14,6 +15,13 @@ function message(err: unknown) {
 }
 
 const app = new Hono()
+	.get("/resolve", (c) => {
+		try {
+			return c.json({ root: resolveWorkspaceScope(c.req.query("root"), "workspace root") }, 200)
+		} catch (err) {
+			return c.json({ error: message(err) }, 400)
+		}
+	})
 	.post("/project", async (c) => {
 		const body = (await c.req.json()) as { name?: string }
 		if (!body.name) return c.json({ error: "name is required" }, 400)

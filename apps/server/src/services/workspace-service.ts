@@ -7,6 +7,7 @@ import {
 	canonicalizePotentialPath,
 	configuredWorkspaceRoots,
 	pathInside,
+	resolveWorkspaceScope,
 } from "./workspace-policy"
 
 export interface WorkspaceEntry {
@@ -65,7 +66,7 @@ export async function createProjectDirectory(name: string) {
 }
 
 function normalizeRoot(root: string): string {
-	return assertWorkspaceAllowed(root, "workspace root")
+	return resolveWorkspaceScope(root, "workspace root")
 }
 
 function resolveInsideRoot(root: string, relativePath = ""): string {

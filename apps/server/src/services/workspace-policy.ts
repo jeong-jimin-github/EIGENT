@@ -46,6 +46,24 @@ export function assertWorkspaceAllowed(input: string, label = "workspace"): stri
 	return input
 }
 
+function isFilesystemRoot(input: string): boolean {
+	if (!path.isAbsolute(input)) return false
+	const resolved = path.resolve(input)
+	return path.parse(resolved).root === resolved
+}
+
+/** Resolve OpenCode's global/No Project root to EIGENT's safe workspace. */
+export function resolveWorkspaceScope(input: string | null | undefined, label = "workspace"): string {
+	const requested = input?.trim()
+	if (!requested) return defaultNoProjectWorkspace()
+	try {
+		return assertWorkspaceAllowed(requested, label)
+	} catch (error) {
+		if (isFilesystemRoot(requested)) return defaultNoProjectWorkspace()
+		throw error
+	}
+}
+
 /** Safe working directory for agent runtimes launched from the UI's No Project scope. */
 export function defaultNoProjectWorkspace(): string {
 	const configuredRoot = configuredWorkspaceRoots()[0]

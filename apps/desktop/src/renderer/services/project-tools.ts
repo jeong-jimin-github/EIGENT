@@ -44,6 +44,12 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 	return data
 }
 
+export async function resolveWorkspaceRoot(root: string): Promise<string> {
+	const query = new URLSearchParams({ root })
+	const data = await request<{ root: string }>(`/api/workspace/resolve?${query}`)
+	return data.root
+}
+
 export async function listWorkspace(root: string, path = ""): Promise<WorkspaceEntry[]> {
 	const query = new URLSearchParams({ root, path })
 	const data = await request<{ entries: WorkspaceEntry[] }>(`/api/workspace/list?${query}`)

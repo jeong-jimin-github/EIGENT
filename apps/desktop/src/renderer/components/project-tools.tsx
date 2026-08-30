@@ -29,6 +29,7 @@ import {
 	killProcess,
 	listWorkspace,
 	readWorkspaceFile,
+	resolveWorkspaceRoot,
 	startProcess,
 	terminalWebSocketUrl,
 	writeWorkspaceFile,
@@ -44,19 +45,50 @@ export function ProjectTools() {
 	const projects = useProjectList()
 	const project = projects.find((item) => item.slug === projectSlug)
 	const setAppBarContent = useSetAppBarContent()
+	const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
+	const [workspaceError, setWorkspaceError] = useState<string | null>(null)
+
+	useEffect(() => {
+		if (!project) {
+			setWorkspaceRoot(null)
+			setWorkspaceError(null)
+			return
+		}
+		let cancelled = false
+		setWorkspaceRoot(null)
+		setWorkspaceError(null)
+		void resolveWorkspaceRoot(project.directory)
+			.then((root) => {
+				if (!cancelled) setWorkspaceRoot(root)
+			})
+			.catch((error) => {
+				if (!cancelled) {
+					setWorkspaceError(error instanceof Error ? error.message : "Failed to resolve workspace")
+				}
+			})
+		return () => {
+			cancelled = true
+		}
+	}, [project])
 
 	useEffect(() => {
 		setAppBarContent(
 			<div className="flex min-w-0 items-center gap-2 text-sm">
 				<span className="font-medium">Project Tools</span>
-				{project ? <span className="truncate text-muted-foreground">{project.directory}</span> : null}
+				{workspaceRoot ? <span className="truncate text-muted-foreground">{workspaceRoot}</span> : null}
 			</div>,
 		)
 		return () => setAppBarContent(null)
-	}, [project, setAppBarContent])
+	}, [project, setAppBarContent, workspaceRoot])
 
 	if (!project) {
 		return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Project not found</div>
+	}
+	if (workspaceError) {
+		return <div className="flex h-full items-center justify-center text-sm text-destructive">{workspaceError}</div>
+	}
+	if (!workspaceRoot) {
+		return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading workspace…</div>
 	}
 
 	return (
@@ -71,13 +103,13 @@ export function ProjectTools() {
 				</TabsList>
 			</div>
 			<TabsContent value="files" className="min-h-0 overflow-hidden">
-				<FilesPanel root={project.directory} />
+				<FilesPanel root={workspaceRoot} />
 			</TabsContent>
 			<TabsContent value="terminal" className="min-h-0 overflow-hidden">
-				<TerminalPanel cwd={project.directory} />
+				<TerminalPanel cwd={workspaceRoot} />
 			</TabsContent>
 			<TabsContent value="processes" className="min-h-0 overflow-hidden">
-				<ProcessesPanel cwd={project.directory} />
+				<ProcessesPanel cwd={workspaceRoot} />
 			</TabsContent>
 			<TabsContent value="browser" className="min-h-0 overflow-hidden">
 				<BrowserLiveView />

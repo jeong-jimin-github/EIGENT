@@ -10,7 +10,7 @@ import {
 	writeManagedProcess,
 } from "../services/process-manager"
 import { stateStore } from "../services/state"
-import { assertWorkspaceAllowed } from "../services/workspace-policy"
+import { resolveWorkspaceScope } from "../services/workspace-policy"
 
 const app = new Hono()
 	.get("/", (c) => c.json({ hostname: HOSTNAME, processes: listManagedProcesses() }, 200))
@@ -19,20 +19,21 @@ const app = new Hono()
 		if (!body.command?.trim() || !body.cwd) {
 			return c.json({ error: "command and cwd are required" }, 400)
 		}
+		let cwd: string
 		try {
-			assertWorkspaceAllowed(body.cwd, "process cwd")
+			cwd = resolveWorkspaceScope(body.cwd, "process cwd")
 		} catch (error) {
 			return c.json({ error: error instanceof Error ? error.message : String(error) }, 400)
 		}
 		if (body.taskId) {
 			const task = stateStore.getTask(body.taskId)
 			if (!task) return c.json({ error: "task not found" }, 400)
-			const relative = path.relative(path.resolve(task.workspace), path.resolve(body.cwd))
+			const relative = path.relative(path.resolve(task.workspace), path.resolve(cwd))
 			if (relative.startsWith("..") || path.isAbsolute(relative)) {
 				return c.json({ error: "process cwd must be inside task workspace" }, 400)
 			}
 		}
-		return c.json(startManagedProcess(body.command, body.cwd, body.taskId), 201)
+		return c.json(startManagedProcess(body.command, cwd, body.taskId), 201)
 	})
 	.get("/:id", (c) => {
 		const info = getManagedProcess(c.req.param("id"))

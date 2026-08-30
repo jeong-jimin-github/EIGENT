@@ -27,7 +27,7 @@ import {
 } from "./services/security-policy"
 import { ensureSingleServer } from "./services/server-manager"
 import { createTerminalSession, type TerminalSession } from "./services/terminal-session"
-import { assertWorkspaceAllowed } from "./services/workspace-policy"
+import { resolveWorkspaceScope } from "./services/workspace-policy"
 
 const app = new Hono()
 const { upgradeWebSocket, websocket } = createBunWebSocket()
@@ -74,13 +74,13 @@ app.use(
 app.get(
 	"/api/terminal/ws",
 	upgradeWebSocket((c) => {
-		const requestedCwd = c.req.query("cwd") || process.env.HOME || process.cwd()
+		const requestedCwd = c.req.query("cwd")
 		let terminal: TerminalSession | null = null
 
 		return {
 			onOpen(_event, ws) {
 				try {
-					const cwd = assertWorkspaceAllowed(requestedCwd, "terminal cwd")
+					const cwd = resolveWorkspaceScope(requestedCwd, "terminal cwd")
 					terminal = createTerminalSession({
 						cwd,
 						onData: (data) => ws.send(data),

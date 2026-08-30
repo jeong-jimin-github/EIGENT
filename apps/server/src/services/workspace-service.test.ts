@@ -57,6 +57,20 @@ describe("workspace filesystem policy", () => {
 		expect(file.path).toBe("src/hello.txt")
 	})
 
+	test("maps an out-of-scope filesystem root to the safe No Project workspace", async () => {
+		const allowedRoot = path.join(base, "workspaces")
+		const noProject = path.join(allowedRoot, "_no-project")
+		await mkdir(noProject, { recursive: true })
+		await writeFile(path.join(noProject, "marker.txt"), "safe")
+		process.env.EIGENT_WORKSPACE_ROOTS = allowedRoot
+
+		const filesystemRoot = path.parse(path.resolve(base)).root
+		const entries = await listWorkspace(filesystemRoot)
+		expect(entries.some((entry) => entry.name === "marker.txt")).toBe(true)
+		const file = await readWorkspaceText(filesystemRoot, "marker.txt")
+		expect(file.content).toBe("safe")
+	})
+
 	test("rejects workspace roots outside EIGENT_WORKSPACE_ROOTS", async () => {
 		const allowedRoot = path.join(base, "workspaces")
 		const outside = path.join(base, "outside")
