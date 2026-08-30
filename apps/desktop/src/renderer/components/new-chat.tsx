@@ -2,6 +2,7 @@ import {
 	PromptInput,
 	PromptInputFooter,
 	PromptInputProvider,
+	PromptInputSubmit,
 	PromptInputTextarea,
 	PromptInputTools,
 	usePromptInputController,
@@ -830,6 +831,7 @@ export function NewChat() {
 								supportsPdf={modelCapabilities?.pdf}
 							/>
 							<PromptInputTextarea
+								data-prompt-input
 								placeholder={t("newChat.placeholder")}
 								autoFocus
 								disabled={launching || !runtimeReady}
@@ -837,10 +839,11 @@ export function NewChat() {
 								onKeyDown={handleTextareaKeyDown}
 							/>
 
-							{/* Toolbar inside the card — agent + model + variant selectors */}
-							{hasToolbar && (
-								<PromptInputFooter>
-									<PromptInputTools>
+							{/* Toolbar + explicit submit button. New-chat previously relied only on
+							    requestSubmit() from the textarea, which is fragile with IME/browser input. */}
+							<PromptInputFooter>
+								<PromptInputTools>
+									{hasToolbar && (
 										<PromptToolbar
 											agents={openCodeAgents ?? []}
 											selectedAgent={selectedAgent}
@@ -857,9 +860,13 @@ export function NewChat() {
 											agentProviders={agentProviders}
 											onSelectRuntime={handleRuntimeSelect}
 										/>
-									</PromptInputTools>
-								</PromptInputFooter>
-							)}
+									)}
+								</PromptInputTools>
+								<PromptInputSubmit
+									disabled={launching || !runtimeReady}
+									status={launching ? "submitted" : undefined}
+								/>
+							</PromptInputFooter>
 						</PromptInput>
 						</div>
 					</PromptInputProvider>
