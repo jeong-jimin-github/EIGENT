@@ -1,7 +1,31 @@
 import { Hono } from "hono"
+import { createServerBackup, restoreServerBackup } from "../services/server-backup"
 import { ensureSingleServer, getServerUrl, stopServer } from "../services/server-manager"
 
+const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
 const app = new Hono()
+	.get("/backup/export", async (c) => {
+		try {
+			const backup = await createServerBackup()
+			const stamp = new Date().toISOString().slice(0, 10)
+			c.header("Content-Type", "application/json; charset=utf-8")
+			c.header("Content-Disposition", `attachment; filename="eigent-server-backup-${stamp}.json"`)
+			c.header("Cache-Control", "no-store")
+			return c.body(JSON.stringify(backup, null, 2))
+		} catch (error) {
+			return c.json({ error: errorMessage(error) }, 500)
+		}
+	})
+	.post("/backup/import", async (c) => {
+		try {
+			const result = await restoreServerBackup(await c.req.text())
+			stopServer()
+			return c.json(result, result.success ? 200 : 207)
+		} catch (error) {
+			return c.json({ success: false, error: errorMessage(error) }, 400)
+		}
+	})
 	// New primary endpoint — ensures the single server is running and returns its URL
 	.get("/opencode", async (c) => {
 		try {

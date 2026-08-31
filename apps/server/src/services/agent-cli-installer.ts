@@ -1,5 +1,5 @@
-import { homedir } from "node:os"
 import { existsSync } from "node:fs"
+import { homedir } from "node:os"
 import path from "node:path"
 import type { AgentProviderKind } from "@eigent/agent-core"
 
@@ -74,12 +74,13 @@ function installCommand(kind: InstallableAgentKind): string[] {
 	if (kind === "opencode") return npmInstallCommand("opencode-ai@latest")
 	const binDir = path.join(installPrefix(), "bin")
 	if (process.platform === "win32") {
+		const tempInstaller = "%TEMP%\\eigent-agy-install.cmd"
 		return [
 			"cmd.exe",
 			"/d",
 			"/s",
 			"/c",
-			`curl -fsSL https://antigravity.google/cli/install.cmd -o "%TEMP%\eigent-agy-install.cmd" && call "%TEMP%\eigent-agy-install.cmd" --dir "${binDir}" && del /q "%TEMP%\eigent-agy-install.cmd"`,
+			`curl -fsSL https://antigravity.google/cli/install.cmd -o "${tempInstaller}" && call "${tempInstaller}" --dir "${binDir}" && del /q "${tempInstaller}"`,
 		]
 	}
 	return [
@@ -110,7 +111,8 @@ async function runInstaller(kind: InstallableAgentKind): Promise<string> {
 	}
 	ensureAgentInstallPath()
 	const executable = resolveAgentCliExecutable(kind)
-	if (!executable) throw new Error(`Automatic ${kind} CLI installation completed but executable was not found`)
+	if (!executable)
+		throw new Error(`Automatic ${kind} CLI installation completed but executable was not found`)
 	console.log(`Agent CLI ${kind} installed at ${executable}`)
 	return executable
 }

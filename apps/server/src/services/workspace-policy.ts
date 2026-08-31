@@ -53,7 +53,10 @@ function isFilesystemRoot(input: string): boolean {
 }
 
 /** Resolve OpenCode's global/No Project root to EIGENT's safe workspace. */
-export function resolveWorkspaceScope(input: string | null | undefined, label = "workspace"): string {
+export function resolveWorkspaceScope(
+	input: string | null | undefined,
+	label = "workspace",
+): string {
 	const requested = input?.trim()
 	if (!requested) return defaultNoProjectWorkspace()
 	try {
