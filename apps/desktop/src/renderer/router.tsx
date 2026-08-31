@@ -19,7 +19,7 @@ import { AboutSettings } from "./components/settings/about-settings"
 import { GeneralSettings } from "./components/settings/general-settings"
 import { NotificationSettings } from "./components/settings/notification-settings"
 import { ProviderSettings } from "./components/settings/provider-settings"
-import { ServerSettings } from "./components/settings/server-settings"
+import { ServerSettingsRoute } from "./components/settings/server-settings-route"
 import { SettingsPage } from "./components/settings/settings-page"
 import { SetupSettings } from "./components/settings/setup-settings"
 import { WorktreeSettings } from "./components/settings/worktree-settings"
@@ -93,7 +93,7 @@ const settingsGeneralRoute = createRoute({
 const settingsServersRoute = createRoute({
 	getParentRoute: () => settingsRoute,
 	path: "servers",
-	component: ServerSettings,
+	component: ServerSettingsRoute,
 })
 
 const settingsNotificationsRoute = createRoute({
