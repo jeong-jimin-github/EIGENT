@@ -131,7 +131,9 @@ export class ProviderRegistry {
 
 	constructor() {
 		try {
-			const persisted = JSON.parse(readFileSync(providerSnapshotPath(), "utf8")) as PersistedProviderSnapshots
+			const persisted = JSON.parse(
+				readFileSync(providerSnapshotPath(), "utf8"),
+			) as PersistedProviderSnapshots
 			if (
 				persisted?.version === 1 &&
 				Number.isFinite(persisted.refreshedAt) &&
