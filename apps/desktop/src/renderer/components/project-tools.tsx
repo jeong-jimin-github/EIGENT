@@ -7,7 +7,8 @@ import { Textarea } from "@palot/ui/components/textarea"
 import { FitAddon } from "@xterm/addon-fit"
 import { Terminal as XTerm } from "@xterm/xterm"
 import "@xterm/xterm/css/xterm.css"
-import { useParams } from "@tanstack/react-router"
+import { useNavigate, useParams } from "@tanstack/react-router"
+import { useAtomValue } from "jotai"
 import {
 	ChevronLeftIcon,
 	FileIcon,
@@ -21,6 +22,7 @@ import {
 	Trash2Icon,
 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
+import { discoveryLoadedAtom } from "../atoms/discovery"
 import { useProjectList } from "../hooks/use-agents"
 import { isHtmlPreviewPath } from "../services/device-preview"
 import { fetchRecoverySnapshot, reconnectDelay, watchRecoverySnapshots } from "../services/eigent-recovery"
@@ -44,6 +46,8 @@ import { DevicePreviewView } from "./device-preview-view"
 
 export function ProjectTools() {
 	const { projectSlug } = useParams({ strict: false }) as { projectSlug?: string }
+	const navigate = useNavigate()
+	const discoveryLoaded = useAtomValue(discoveryLoadedAtom)
 	const projects = useProjectList()
 	const project =
 		projects.find((item) => item.slug === projectSlug) ??
@@ -62,6 +66,18 @@ export function ProjectTools() {
 	const setAppBarContent = useSetAppBarContent()
 	const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
 	const [workspaceError, setWorkspaceError] = useState<string | null>(null)
+
+	// Old global sessions could leave bookmarks such as /project/ubuntu-dir-.../tools.
+	// Once discovery is complete and that synthetic project no longer exists,
+	// repair the route instead of trying to resolve an unsafe legacy directory.
+	useEffect(() => {
+		if (!discoveryLoaded || project || !projectSlug || projectSlug === "no-project") return
+		void navigate({
+			to: "/project/$projectSlug/tools",
+			params: { projectSlug: "no-project" },
+			replace: true,
+		})
+	}, [discoveryLoaded, navigate, project, projectSlug])
 
 	useEffect(() => {
 		if (!project) {

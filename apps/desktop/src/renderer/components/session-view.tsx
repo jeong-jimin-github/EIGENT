@@ -77,6 +77,19 @@ export function SessionView({ sessionId }: SessionViewProps) {
 	const sessionAgentRuntimes = useAtomValue(sessionAgentRuntimesAtom)
 	const projectAgentRuntimes = useAtomValue(projectAgentRuntimesAtom)
 	const [agentProviders, setAgentProviders] = useState<AgentProviderSnapshot[]>([])
+
+	// Legacy/global OpenCode sessions can retain a directory such as /home/ubuntu.
+	// Once discovery classifies them as No Project, repair stale URLs so tools and
+	// preview always use the canonical permanent No Project project.
+	useEffect(() => {
+		if (!selectedAgent || !projectSlug || projectSlug === selectedAgent.projectSlug) return
+		void navigate({
+			to: "/project/$projectSlug/session/$sessionId",
+			params: { projectSlug: selectedAgent.projectSlug, sessionId },
+			replace: true,
+		})
+	}, [navigate, projectSlug, selectedAgent, sessionId])
+
 	const hydratedUnifiedSessionsRef = useRef(new Set<string>())
 	const locallyCreatedUnifiedSessionsRef = useRef(new Set<string>())
 
@@ -196,7 +209,7 @@ export function SessionView({ sessionId }: SessionViewProps) {
 		void (async () => {
 			const restored = await hydrateUnifiedAgentHistory({
 				uiSessionId: sessionId,
-				workspace: selectedAgent.directory,
+				workspace: selectedAgent.workspaceDirectory,
 				runtime: persisted,
 				agentSessionId,
 				signal: controller.signal,
@@ -207,7 +220,7 @@ export function SessionView({ sessionId }: SessionViewProps) {
 			) {
 				await followUnifiedAgentHistory({
 					uiSessionId: sessionId,
-					workspace: selectedAgent.directory,
+					workspace: selectedAgent.workspaceDirectory,
 					runtime: persisted,
 					agentSessionId,
 					afterSequence: restored.lastSequence,
@@ -257,7 +270,7 @@ export function SessionView({ sessionId }: SessionViewProps) {
 			if (currentRuntime.provider === "opencode") return false
 			await sendUnifiedAgentPrompt({
 				uiSessionId: sessionId,
-				workspace: agent.directory,
+				workspace: agent.workspaceDirectory,
 				runtime: currentRuntime,
 				message,
 				agentSessionId: persisted?.agentSessionId,
@@ -394,7 +407,7 @@ export function SessionView({ sessionId }: SessionViewProps) {
 					})
 					return
 				}
-				await sendPrompt(agent.directory, agent.sessionId, message, {
+				await sendPrompt(agent.workspaceDirectory, agent.sessionId, message, {
 					model: options?.model,
 					agent: options?.agentName || undefined,
 					variant: options?.variant,

@@ -151,14 +151,14 @@ export function AgentDetail({
 	const setActivePreviewContext = useSetAtom(activePreviewContextAtom)
 
 	useEffect(() => {
-		const context = { sessionId: agent.sessionId, directory: agent.directory }
+		const context = { sessionId: agent.sessionId, directory: agent.workspaceDirectory }
 		setActivePreviewContext(context)
 		return () => {
 			setActivePreviewContext((current) =>
 				current?.sessionId === context.sessionId ? null : current,
 			)
 		}
-	}, [agent.directory, agent.sessionId, setActivePreviewContext])
+	}, [agent.sessionId, agent.workspaceDirectory, setActivePreviewContext])
 
 	const [isEditingTitle, setIsEditingTitle] = useState(false)
 	const [titleValue, setTitleValue] = useState(agent.name)

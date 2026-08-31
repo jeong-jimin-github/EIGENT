@@ -125,8 +125,10 @@ export interface Agent {
 	project: string
 	/** URL slug for the project (for router navigation) */
 	projectSlug: string
-	/** Full project directory path (for auto-starting servers) */
+	/** Original OpenCode session directory, retained for history/delete operations. */
 	directory: string
+	/** Safe logical workspace used for new tools, prompts, and Device Preview. */
+	workspaceDirectory: string
 	/** The root project directory. For worktree sessions this is the parent project,
 	 *  for regular sessions it equals `directory`. Use this as the target for
 	 *  apply-to-project and other operations that should target the main checkout. */

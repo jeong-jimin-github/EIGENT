@@ -20,7 +20,7 @@ import {
 	updateStreamingPart,
 } from "../atoms/streaming"
 import { createLogger } from "../lib/logger"
-import { listManagedProjects } from "./project-tools"
+import { listManagedProjects, resolveWorkspaceRoot } from "./project-tools"
 import type { Event } from "../lib/types"
 import {
 	connectToServer,
@@ -224,9 +224,29 @@ export async function loadAllProjects() {
 		return []
 	}
 	try {
-		const openCodeProjects = (await listProjects(client)).filter((project) => !isSyntheticGlobalProject(project))
+		const candidateOpenCodeProjects = (await listProjects(client)).filter(
+			(project) => !isSyntheticGlobalProject(project),
+		)
+		let openCodeProjects = candidateOpenCodeProjects
 		let managedProjects: import("../lib/types").OpenCodeProject[] = []
 		if (typeof window !== "undefined" && !("palot" in window)) {
+			const validated = await Promise.all(
+				candidateOpenCodeProjects.map(async (project) => {
+					if (!project.worktree) return null
+					try {
+						await resolveWorkspaceRoot(project.worktree)
+						return project
+					} catch {
+						log.info("Absorbing out-of-scope OpenCode project into No Project", {
+							worktree: project.worktree,
+						})
+						return null
+					}
+				}),
+			)
+			openCodeProjects = validated.filter(
+				(project): project is import("../lib/types").OpenCodeProject => Boolean(project),
+			)
 			try {
 				managedProjects = await listManagedProjects()
 			} catch (err) {

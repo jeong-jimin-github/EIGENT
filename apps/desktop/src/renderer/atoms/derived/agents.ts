@@ -10,6 +10,7 @@ import type {
 import { discoveryAtom } from "../discovery"
 import { hiddenProjectDirectoriesAtom } from "../preferences"
 import { sessionFamily, sessionIdsAtom } from "../sessions"
+import { buildProjectScopeMappings, logicalProjectDirectory, logicalWorkspaceDirectory } from "../../services/project-scope"
 import { effectivePermissionFamily, effectiveQuestionFamily } from "./session-requests"
 
 // ============================================================
@@ -32,6 +33,7 @@ function agentEqual(prev: Agent | null, next: Agent | null): boolean {
 		prev.project === next.project &&
 		prev.projectSlug === next.projectSlug &&
 		prev.directory === next.directory &&
+		prev.workspaceDirectory === next.workspaceDirectory &&
 		prev.projectDirectory === next.projectDirectory &&
 		prev.branch === next.branch &&
 		prev.duration === next.duration &&
@@ -203,12 +205,16 @@ function collectAllProjects(
 		}
 	}
 
-	// Live session directories (may include directories not in any project).
-	// Skip directories that are sandboxes of a known project.
+	// Promote live session directories to standalone projects only while discovery
+	// is incomplete. Afterwards, orphan/global directories are absorbed by No Project.
+	const knownProjectDirectories = new Set(
+		discovery.projects.map((project) => project.worktree).filter((value): value is string => Boolean(value)),
+	)
 	for (const [, directory] of liveSessionDirs) {
 		if (seenDirs.has(directory)) continue
 		if (!directory) continue
 		if (sandboxDirs.has(directory)) continue
+		if (discovery.loaded && !knownProjectDirectories.has(directory)) continue
 		seenDirs.add(directory)
 		let hash = 0
 		for (let i = 0; i < directory.length; i++) {
@@ -244,11 +250,13 @@ export const sandboxMappingsAtom = atom((get) => {
 		return {
 			sandboxToParent: new Map<string, string>(),
 			parentToSandboxes: new Map<string, Set<string>>(),
+			scopeMappings: buildProjectScopeMappings([], false),
 		}
 	}
 	return {
 		sandboxToParent: buildSandboxToParentMap(discovery.projects),
 		parentToSandboxes: buildParentToSandboxesMap(discovery.projects),
+		scopeMappings: buildProjectScopeMappings(discovery.projects, true),
 	}
 })
 
@@ -291,7 +299,7 @@ export const agentFamily = atomFamily((sessionId: string) => {
 		}
 
 		const slugMap = get(projectSlugMapAtom)
-		const { sandboxToParent } = get(sandboxMappingsAtom)
+		const { scopeMappings } = get(sandboxMappingsAtom)
 		const { session, status, directory } = entry
 
 		// Use tree-scoped requests to determine blocking status so the parent
@@ -307,10 +315,10 @@ export const agentFamily = atomFamily((sessionId: string) => {
 
 		// If this session's directory is a sandbox (worktree), resolve the parent
 		// project directory for name/slug display so it groups visually under the parent.
-		const parentDir = sandboxToParent.get(directory)
-		const displayDir = parentDir ?? directory
+		const displayDir = logicalProjectDirectory(directory, scopeMappings)
+		const workspaceDirectory = logicalWorkspaceDirectory(directory, scopeMappings)
 		const projectInfo = slugMap.get(displayDir)
-		const isNoProject = !directory
+		const isNoProject = displayDir === ""
 
 		// Derive currentActivity from tree-scoped requests first, then own status.
 		// This ensures "waiting for approval" shows even when the permission is from a sub-agent.
@@ -326,6 +334,7 @@ export const agentFamily = atomFamily((sessionId: string) => {
 			project: isNoProject ? "No Project" : projectNameFromDir(displayDir),
 			projectSlug: isNoProject ? "no-project" : projectInfo?.slug ?? projectNameFromDir(displayDir),
 			directory,
+			workspaceDirectory,
 			projectDirectory: displayDir,
 			branch: entry.branch ?? "",
 			duration: formatRelativeTime(lastActiveAt),
@@ -421,10 +430,7 @@ export const projectSessionIdsFamily = atomFamily((directory: string) => {
 	let prev: string[] = []
 	return atom((get) => {
 		const sessionIds = get(sessionIdsAtom)
-		const { parentToSandboxes } = get(sandboxMappingsAtom)
-
-		// Directories that belong to this project: the project dir itself + its sandboxes
-		const sandboxes = parentToSandboxes.get(directory)
+		const { scopeMappings } = get(sandboxMappingsAtom)
 
 		const ids: string[] = []
 		for (const id of sessionIds) {
@@ -433,8 +439,7 @@ export const projectSessionIdsFamily = atomFamily((directory: string) => {
 			// Hide sub-agent sessions in the sidebar (they still exist in the store
 			// for message/part lookups and direct navigation)
 			if (entry.session.parentID) continue
-			// Match the project directory itself, or any of its sandbox directories
-			if (entry.directory !== directory && !sandboxes?.has(entry.directory)) continue
+			if (logicalProjectDirectory(entry.directory, scopeMappings) !== directory) continue
 			ids.push(id)
 		}
 		// Structural equality: return previous array if contents are the same
@@ -479,7 +484,7 @@ export const projectListAtom = (() => {
 		const discovery = get(discoveryAtom)
 		const hiddenProjects = new Set(get(hiddenProjectDirectoriesAtom))
 		const slugMap = get(projectSlugMapAtom)
-		const { sandboxToParent } = get(sandboxMappingsAtom)
+		const { scopeMappings } = get(sandboxMappingsAtom)
 
 		const projects = new Map<string, SidebarProject>()
 
@@ -511,8 +516,7 @@ export const projectListAtom = (() => {
 
 			// Remap sandbox directories to their parent project. Empty directory is the
 			// built-in No Project project and must not be discarded.
-			const parentDir = entry.directory ? sandboxToParent.get(entry.directory) : undefined
-			const dir = parentDir ?? entry.directory
+			const dir = logicalProjectDirectory(entry.directory, scopeMappings)
 			if (hiddenProjects.has(dir)) continue
 			const projectInfo = slugMap.get(dir)
 			const name = projectNameFromDir(dir)

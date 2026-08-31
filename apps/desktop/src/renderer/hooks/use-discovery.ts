@@ -157,6 +157,11 @@ export function useDiscovery() {
 					projects,
 				})
 
+				// Preload root sessions once so legacy/global sessions survive reload.
+				// setSessionsAtom preserves each session's original directory; the scope
+				// normalizer groups orphan directories under the permanent No Project.
+				await loadProjectSessions("", undefined, { limit: 50, roots: true })
+
 				// --- Step 5: Pre-fetch sessions for the most recent projects ---
 				// Load sessions from the top N most-recently-active projects so the
 				// "Recent" and "Active Now" sidebar sections are populated at boot.

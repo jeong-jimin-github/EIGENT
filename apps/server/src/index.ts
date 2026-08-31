@@ -19,6 +19,7 @@ import { ensureAgentCliInstalled, ensureAgentClisInstalled } from "./services/ag
 import { browserRuntime } from "./services/browser-runtime"
 import { desktopRuntime } from "./services/desktop-runtime"
 import { proxyLoopbackPreviewRequest } from "./services/loopback-preview"
+import { scopeOpenCodeSessionRequest } from "./services/opencode-proxy-scope"
 import { previewRequestPath } from "./services/preview-route-path"
 import { providerRegistry } from "./services/provider-registry"
 import {
@@ -405,6 +406,15 @@ app.all(`${OPENCODE_PROXY_PREFIX}/*`, async (c) => {
 		headers.delete("origin")
 		headers.delete("referer")
 		headers.delete("accept-encoding")
+
+		// The browser's No Project client intentionally has no directory header.
+		// Pin session creation/prompt requests to EIGENT's safe managed workspace
+		// instead of inheriting the OpenCode process cwd (/home/ubuntu on the VPS).
+		scopeOpenCodeSessionRequest(
+			headers,
+			targetUrl.pathname,
+			resolveWorkspaceScope("", "OpenCode No Project directory"),
+		)
 
 		const method = c.req.method.toUpperCase()
 		const cacheable = method === "GET" && OPENCODE_CACHEABLE_PATHS.has(targetUrl.pathname)
