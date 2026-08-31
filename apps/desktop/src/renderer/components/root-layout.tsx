@@ -24,6 +24,7 @@ import { AppBarProvider } from "./app-bar-context"
 import { CommandPalette } from "./command-palette"
 import { OnboardingOverlay } from "./onboarding/onboarding-overlay"
 import { SidebarSlotProvider } from "./sidebar-slot-context"
+import { isStartupContentVisible } from "../services/startup-display"
 import { StartupOverlay } from "./startup-overlay"
 
 export function RootLayout() {
@@ -179,7 +180,7 @@ export function RootLayout() {
 	// The overlay fades out at "ready"; showing content at "ready" creates a
 	// smooth crossfade. Content is still rendered (just invisible) so React
 	// can paint it before the overlay lifts.
-	const contentReady = phase === "ready" || phase === "loading-sessions" || phase === "error"
+	const contentReady = isStartupContentVisible(phase)
 
 	return (
 		<TooltipProvider>

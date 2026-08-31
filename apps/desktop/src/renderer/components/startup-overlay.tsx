@@ -17,6 +17,7 @@ import { useAtomValue } from "jotai"
 import { useEffect, useRef, useState } from "react"
 import type { DiscoveryPhase } from "../atoms/discovery"
 import { discoveryPhaseAtom } from "../atoms/discovery"
+import { STARTUP_OVERLAY_BASE_CLASS } from "../services/startup-display"
 import { EigentWordmark } from "./eigent-wordmark"
 
 // ============================================================
@@ -93,7 +94,7 @@ export function StartupOverlay() {
 	return (
 		<div
 			data-slot="startup-overlay"
-			className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center transition-opacity ${isVisible ? "opacity-100" : "opacity-0"}`}
+			className={`${STARTUP_OVERLAY_BASE_CLASS} ${isVisible ? "opacity-100" : "opacity-0"}`}
 			style={{
 				transitionDuration: `${FADE_DURATION_MS}ms`,
 				transitionTimingFunction: "ease-out",

@@ -135,7 +135,8 @@ export function SessionView({ sessionId }: SessionViewProps) {
 					// render, which in turn hits the fast-path above.
 					appStore.set(upsertSessionAtom, {
 						session,
-						directory: projectSlug === "no-project" ? "" : session.directory ?? "",
+						// Preserve the session's real read scope even when the orphan is grouped under No Project.
+						directory: session.directory ?? "",
 					})
 				} else {
 					// Confirmed not found — stop resolving so "not found" renders.
