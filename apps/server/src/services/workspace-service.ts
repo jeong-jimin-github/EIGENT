@@ -64,7 +64,6 @@ export async function createProjectDirectory(name: string) {
 		if (!existing?.isDirectory()) {
 			throw new Error("a non-directory entry with this project name already exists")
 		}
-		// Recover folders created by older builds that failed to register them in the UI.
 		return { path: target, created: false }
 	}
 }
@@ -81,12 +80,6 @@ function managedProjectId(directory: string): string {
 	return `workspace-${createHash("sha256").update(directory).digest("hex").slice(0, 16)}`
 }
 
-/**
- * List direct EIGENT workspace children as projects. OpenCode 1.18.x may map
- * ordinary directories to its synthetic `global /` project even though session
- * APIs still honor the requested directory, so the EIGENT workspace is the
- * authoritative source for browser-created projects.
- */
 export async function listManagedProjects(): Promise<ManagedWorkspaceProject[]> {
 	const root = defaultProjectRoot()
 	await mkdir(root, { recursive: true })
@@ -107,7 +100,9 @@ export async function listManagedProjects(): Promise<ManagedWorkspaceProject[]> 
 				} satisfies ManagedWorkspaceProject
 			}),
 	)
-	return projects.toSorted((a, b) => b.time.updated - a.time.updated || a.name.localeCompare(b.name))
+	return projects.toSorted(
+		(a, b) => b.time.updated - a.time.updated || a.name.localeCompare(b.name),
+	)
 }
 
 function normalizeRoot(root: string): string {
