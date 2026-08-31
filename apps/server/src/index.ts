@@ -19,6 +19,7 @@ import { ensureAgentCliInstalled, ensureAgentClisInstalled } from "./services/ag
 import { browserRuntime } from "./services/browser-runtime"
 import { desktopRuntime } from "./services/desktop-runtime"
 import { proxyLoopbackPreviewRequest } from "./services/loopback-preview"
+import { previewRequestPath } from "./services/preview-route-path"
 import { providerRegistry } from "./services/provider-registry"
 import {
 	consumeMutationRateLimit,
@@ -470,7 +471,7 @@ app.all("/api/*", (c) => c.json({ error: "Not found" }, 404))
 app.get("/preview/:token/*", async (c) => {
 	try {
 		const token = c.req.param("token")
-		const requestPath = c.req.param("*") || "index.html"
+		const requestPath = previewRequestPath(c.req.url, "/preview", token)
 		const asset = await resolveWorkspacePreviewAsset(token, requestPath)
 		const file = Bun.file(asset.absolutePath)
 		const headers = new Headers({
@@ -498,13 +499,14 @@ app.get("/preview/:token/*", async (c) => {
 	}
 })
 
-app.get("/preview/:token", (c) => c.redirect(`/preview/${c.req.param("token")}/index.html`))
+app.get("/preview/:token", (c) => c.redirect(`/preview/${c.req.param("token")}/`))
 
 app.all("/local-preview/:token/*", async (c) => {
 	try {
+		const token = c.req.param("token")
 		return await proxyLoopbackPreviewRequest(
-			c.req.param("token"),
-			c.req.param("*") || "",
+			token,
+			previewRequestPath(c.req.url, "/local-preview", token),
 			c.req.raw,
 		)
 	} catch (err) {

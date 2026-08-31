@@ -59,9 +59,14 @@ describe("workspace device preview", () => {
 			"body{background:url(/preview/token/hero.png)}",
 		)
 	})
-	test("discovers a top-level HTML page without diff hints", async () => {
+	test("discovers and serves a top-level HTML page without diff hints", async () => {
 		await rm(path.join(root, "index.html"), { force: true })
 		await writeFile(path.join(root, "calculator.html"), "<h1>Calculator</h1>")
 		expect(await findWorkspacePreviewEntry(root, [])).toBe("calculator.html")
+
+		const preview = await createWorkspacePreviewSession(root, [])
+		expect(preview.entryPath).toBe("calculator.html")
+		const asset = await resolveWorkspacePreviewAsset(preview.token, "")
+		expect(asset.relativePath).toBe("calculator.html")
 	})
 })

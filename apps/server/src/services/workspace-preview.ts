@@ -11,6 +11,7 @@ const HTML_ENTRY_NAMES = ["index.html", "index.htm"] as const
 interface PreviewSession {
 	root: string
 	expiresAt: number
+	entryPath: string | null
 }
 
 const previewSessions = new Map<string, PreviewSession>()
@@ -100,7 +101,7 @@ export async function createWorkspacePreviewSession(root: string, changedFiles: 
 	const entryPath = await findWorkspacePreviewEntry(normalizedRoot, changedFiles)
 	const token = randomBytes(24).toString("base64url")
 	const expiresAt = Date.now() + PREVIEW_TTL_MS
-	previewSessions.set(token, { root: normalizedRoot, expiresAt })
+	previewSessions.set(token, { root: normalizedRoot, expiresAt, entryPath })
 	return { token, expiresAt, entryPath }
 }
 
@@ -112,15 +113,15 @@ function requirePreviewSession(token: string): PreviewSession {
 	return session
 }
 
-function cleanRequestPath(requestPath: string): string {
+function cleanRequestPath(requestPath: string, fallbackPath: string): string {
 	const decoded = decodeURIComponent(requestPath)
 	const normalized = normalizeRelativePath(decoded)
-	return normalized || "index.html"
+	return normalized || fallbackPath
 }
 
 export async function resolveWorkspacePreviewAsset(token: string, requestPath: string) {
 	const session = requirePreviewSession(token)
-	let relativePath = cleanRequestPath(requestPath)
+	let relativePath = cleanRequestPath(requestPath, session.entryPath ?? "index.html")
 	let target = resolveWorkspaceFilePath(session.root, relativePath)
 	let info = await stat(target).catch(() => null)
 
