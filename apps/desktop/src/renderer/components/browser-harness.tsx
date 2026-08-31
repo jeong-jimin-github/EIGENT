@@ -140,8 +140,8 @@ export function BrowserHarness() {
 				<PanelRightCloseIcon aria-hidden="true" className="size-4" />
 				<span className="sr-only">Hide preview panel</span>
 			</Button>
-			{mode === "device" && loopbackUrl ? (
-				<LoopbackDevicePreviewView url={loopbackUrl} revision={revision} />
+			{mode === "device" && loopbackUrl && previewContext ? (
+				<LoopbackDevicePreviewView url={loopbackUrl} root={previewContext.directory} revision={revision} />
 			) : mode === "device" && previewContext ? (
 				<DevicePreviewView
 					root={previewContext.directory}

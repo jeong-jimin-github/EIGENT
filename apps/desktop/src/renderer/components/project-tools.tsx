@@ -8,7 +8,7 @@ import { FitAddon } from "@xterm/addon-fit"
 import { Terminal as XTerm } from "@xterm/xterm"
 import "@xterm/xterm/css/xterm.css"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { useAtomValue } from "jotai"
+import { useAtomValue, useSetAtom } from "jotai"
 import {
 	ChevronLeftIcon,
 	FileIcon,
@@ -23,6 +23,11 @@ import {
 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { discoveryLoadedAtom } from "../atoms/discovery"
+import {
+	activePreviewContextAtom,
+	projectToolsSessionAtom,
+	viewedSessionIdAtom,
+} from "../atoms/ui"
 import { useProjectList } from "../hooks/use-agents"
 import { isHtmlPreviewPath } from "../services/device-preview"
 import { fetchRecoverySnapshot, reconnectDelay, watchRecoverySnapshots } from "../services/eigent-recovery"
@@ -48,6 +53,9 @@ export function ProjectTools() {
 	const { projectSlug } = useParams({ strict: false }) as { projectSlug?: string }
 	const navigate = useNavigate()
 	const discoveryLoaded = useAtomValue(discoveryLoadedAtom)
+	const projectToolsSession = useAtomValue(projectToolsSessionAtom)
+	const setViewedSessionId = useSetAtom(viewedSessionIdAtom)
+	const setActivePreviewContext = useSetAtom(activePreviewContextAtom)
 	const projects = useProjectList()
 	const project =
 		projects.find((item) => item.slug === projectSlug) ??
@@ -66,6 +74,31 @@ export function ProjectTools() {
 	const setAppBarContent = useSetAppBarContent()
 	const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
 	const [workspaceError, setWorkspaceError] = useState<string | null>(null)
+
+	// Project Tools is a temporary view over the current session, not a session switch.
+	// Restore the session snapshot after AgentDetail/SessionView unmount cleanups run.
+	useEffect(() => {
+		if (!projectSlug || projectToolsSession?.projectSlug !== projectSlug) return
+		const sessionId = projectToolsSession.sessionId
+		const previewContext = projectToolsSession.previewContext
+		if (sessionId) setViewedSessionId(sessionId)
+		if (previewContext) setActivePreviewContext(previewContext)
+		return () => {
+			if (sessionId) {
+				setViewedSessionId((current) => (current === sessionId ? null : current))
+			}
+			if (previewContext) {
+				setActivePreviewContext((current) =>
+					current?.sessionId === previewContext.sessionId ? null : current,
+				)
+			}
+		}
+	}, [
+		projectSlug,
+		projectToolsSession,
+		setActivePreviewContext,
+		setViewedSessionId,
+	])
 
 	// Old global sessions could leave bookmarks such as /project/ubuntu-dir-.../tools.
 	// Once discovery is complete and that synthetic project no longer exists,

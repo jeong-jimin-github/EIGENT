@@ -3,19 +3,43 @@ import { MonitorSmartphoneIcon, RefreshCwIcon } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import {
 	createLoopbackPreviewSession,
+	fetchDevicePreviewReloadState,
 	loopbackPreviewUrl,
+	requestDevicePreviewReload,
 } from "../services/device-preview"
 
 interface LoopbackDevicePreviewViewProps {
 	url: string
+	root: string
 	revision: string
 }
 
-export function LoopbackDevicePreviewView({ url, revision }: LoopbackDevicePreviewViewProps) {
+export function LoopbackDevicePreviewView({ url, root, revision }: LoopbackDevicePreviewViewProps) {
 	const [token, setToken] = useState<string | null>(null)
 	const [initialPath, setInitialPath] = useState("/")
 	const [error, setError] = useState<string | null>(null)
 	const [manualRevision, setManualRevision] = useState(0)
+	const [remoteRevision, setRemoteRevision] = useState(0)
+
+	useEffect(() => {
+		const controller = new AbortController()
+		let active = true
+		const poll = async () => {
+			try {
+				const state = await fetchDevicePreviewReloadState(root, controller.signal)
+				if (active) setRemoteRevision(state.revision)
+			} catch {
+				// Keep the active localhost preview visible while reload control reconnects.
+			}
+		}
+		void poll()
+		const timer = window.setInterval(() => void poll(), 750)
+		return () => {
+			active = false
+			controller.abort()
+			window.clearInterval(timer)
+		}
+	}, [root])
 
 	useEffect(() => {
 		let cancelled = false
@@ -38,9 +62,9 @@ export function LoopbackDevicePreviewView({ url, revision }: LoopbackDevicePrevi
 	const src = useMemo(
 		() =>
 			token
-				? loopbackPreviewUrl(token, initialPath, `${revision}-${manualRevision}`)
+				? loopbackPreviewUrl(token, initialPath, `${revision}-${manualRevision}-${remoteRevision}`)
 				: null,
-		[token, initialPath, revision, manualRevision],
+		[token, initialPath, revision, manualRevision, remoteRevision],
 	)
 
 	return (
@@ -53,7 +77,11 @@ export function LoopbackDevicePreviewView({ url, revision }: LoopbackDevicePrevi
 					variant="ghost"
 					size="icon-sm"
 					title="Reload device preview"
-					onClick={() => setManualRevision((value) => value + 1)}
+					onClick={() => {
+						void requestDevicePreviewReload(root)
+							.then((state) => setRemoteRevision(state.revision))
+							.catch(() => setManualRevision((value) => value + 1))
+					}}
 				>
 					<RefreshCwIcon className="size-3.5" />
 				</Button>

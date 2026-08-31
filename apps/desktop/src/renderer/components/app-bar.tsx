@@ -1,7 +1,9 @@
 import { Button } from "@palot/ui/components/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@palot/ui/components/tooltip"
 import { useNavigate, useParams, useRouterState } from "@tanstack/react-router"
+import { useAtomValue, useSetAtom } from "jotai"
 import { WrenchIcon } from "lucide-react"
+import { activePreviewContextAtom, projectToolsSessionAtom } from "../atoms/ui"
 import { useI18n } from "../hooks/use-i18n"
 import { useAppBarContent } from "./app-bar-context"
 
@@ -22,7 +24,13 @@ export function AppBar() {
 	const projectToolsOpen = useRouterState({
 		select: (state) => state.location.pathname.endsWith("/tools"),
 	})
-	const { projectSlug } = useParams({ strict: false }) as { projectSlug?: string }
+	const { projectSlug, sessionId } = useParams({ strict: false }) as {
+		projectSlug?: string
+		sessionId?: string
+	}
+	const activePreviewContext = useAtomValue(activePreviewContextAtom)
+	const projectToolsSession = useAtomValue(projectToolsSessionAtom)
+	const setProjectToolsSession = useSetAtom(projectToolsSessionAtom)
 
 	return (
 		<div
@@ -45,11 +53,30 @@ export function AppBar() {
 								variant="ghost"
 								size="icon"
 								className="size-7 shrink-0"
+								aria-label={t(projectToolsOpen ? "sidebar.closeProjectTools" : "sidebar.projectTools")}
 								onClick={() => {
 									if (projectToolsOpen) {
-										navigate({ to: "/project/$projectSlug", params: { projectSlug } })
+										const returnSessionId =
+											projectToolsSession?.projectSlug === projectSlug
+												? projectToolsSession.sessionId
+												: null
+										if (returnSessionId) {
+											navigate({
+												to: "/project/$projectSlug/session/$sessionId",
+												params: { projectSlug, sessionId: returnSessionId },
+											})
+										} else {
+											navigate({ to: "/project/$projectSlug", params: { projectSlug } })
+										}
 										return
 									}
+									const rememberedSessionId = sessionId ?? null
+									setProjectToolsSession({
+										projectSlug,
+										sessionId: rememberedSessionId ?? null,
+										previewContext:
+											activePreviewContext?.sessionId === rememberedSessionId ? activePreviewContext : null,
+									})
 									navigate({ to: "/project/$projectSlug/tools", params: { projectSlug } })
 								}}
 							/>

@@ -1,6 +1,10 @@
 import { Hono } from "hono"
 import { resolveWorkspaceScope } from "../services/workspace-policy"
 import {
+	getDevicePreviewReloadState,
+	requestDevicePreviewReload,
+} from "../services/device-preview-control"
+import {
 	createWorkspacePreviewSession,
 	findWorkspacePreviewEntry,
 } from "../services/workspace-preview"
@@ -43,6 +47,24 @@ const app = new Hono()
 				? body.changedFiles.filter((file): file is string => typeof file === "string").slice(0, 500)
 				: []
 			return c.json(await createWorkspacePreviewSession(body.root, changedFiles), 201)
+		} catch (err) {
+			return c.json({ error: message(err) }, 400)
+		}
+	})
+	.get("/preview-reload", (c) => {
+		const root = c.req.query("root")
+		if (root === undefined) return c.json({ error: "root is required" }, 400)
+		try {
+			return c.json(getDevicePreviewReloadState(root), 200)
+		} catch (err) {
+			return c.json({ error: message(err) }, 400)
+		}
+	})
+	.post("/preview-reload", async (c) => {
+		const body = (await c.req.json()) as { root?: string }
+		if (typeof body.root !== "string") return c.json({ error: "root is required" }, 400)
+		try {
+			return c.json(requestDevicePreviewReload(body.root), 200)
 		} catch (err) {
 			return c.json({ error: message(err) }, 400)
 		}

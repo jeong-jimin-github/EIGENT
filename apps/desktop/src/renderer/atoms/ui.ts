@@ -19,6 +19,15 @@ export interface ActivePreviewContext {
 /** Visible session workspace used by the global device/browser preview harness. */
 export const activePreviewContextAtom = atom<ActivePreviewContext | null>(null)
 
+export interface ProjectToolsSessionContext {
+	projectSlug: string
+	sessionId: string | null
+	previewContext: ActivePreviewContext | null
+}
+
+/** Session snapshot kept alive while the user temporarily opens Project Tools. */
+export const projectToolsSessionAtom = atom<ProjectToolsSessionContext | null>(null)
+
 // ============================================================
 // Review Panel State
 // ============================================================

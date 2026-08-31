@@ -105,3 +105,33 @@ export function webPreviewRevision(diffs: FileDiff[]): string {
 	}
 	return (hash >>> 0).toString(36)
 }
+export interface DevicePreviewReloadState {
+	root: string
+	revision: number
+	requestedAt: number
+}
+
+export async function fetchDevicePreviewReloadState(
+	root: string,
+	signal?: AbortSignal,
+): Promise<DevicePreviewReloadState> {
+	const response = await fetch(`/api/workspace/preview-reload?root=${encodeURIComponent(root)}`, {
+		cache: "no-store",
+		signal,
+	})
+	const data = (await response.json()) as DevicePreviewReloadState & { error?: string }
+	if (!response.ok) throw new Error(data.error ?? "Failed to read Device Preview reload state")
+	return data
+}
+
+export async function requestDevicePreviewReload(root: string): Promise<DevicePreviewReloadState> {
+	const response = await fetch("/api/workspace/preview-reload", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ root }),
+	})
+	const data = (await response.json()) as DevicePreviewReloadState & { error?: string }
+	if (!response.ok) throw new Error(data.error ?? "Failed to reload Device Preview")
+	return data
+}
+

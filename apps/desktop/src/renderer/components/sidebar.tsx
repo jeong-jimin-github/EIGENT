@@ -47,6 +47,7 @@ import { agentFamily, projectSessionIdsFamily, sandboxMappingsAtom } from "../at
 import { automationsEnabledAtom } from "../atoms/feature-flags"
 import { projectPaginationFamily } from "../atoms/sessions"
 import { appStore } from "../atoms/store"
+import { activePreviewContextAtom, projectToolsSessionAtom } from "../atoms/ui"
 import type { Agent, AgentStatus, SidebarProject } from "../lib/types"
 import { loadMoreProjectSessions, loadProjectSessions } from "../services/connection-manager"
 import { ServerIndicator } from "./server-indicator"
@@ -114,10 +115,15 @@ export function AppSidebarContent({
 	const navigate = useNavigate()
 	const { t } = useI18n()
 	const routeParams = useParams({ strict: false }) as { sessionId?: string; projectSlug?: string }
-	const selectedSessionId = routeParams.sessionId ?? null
+	const projectToolsSession = useAtomValue(projectToolsSessionAtom)
 	const projectToolsOpen = useRouterState({
 		select: (state) => state.location.pathname.endsWith("/tools"),
 	})
+	const selectedSessionId =
+		routeParams.sessionId ??
+		(projectToolsOpen && projectToolsSession?.projectSlug === routeParams.projectSlug
+			? projectToolsSession.sessionId
+			: null)
 	const automationsEnabled = useAtomValue(automationsEnabledAtom)
 	const activeServer = useAtomValue(activeServerConfigAtom)
 	const isLocalServer = activeServer.type === "local"
@@ -564,12 +570,27 @@ const ProjectFolder = memo(function ProjectFolder({
 									)}
 									onClick={() => {
 										if (projectToolsOpen) {
-											navigate({
-												to: "/project/$projectSlug",
-												params: { projectSlug: project.slug },
-											})
+											const snapshot = appStore.get(projectToolsSessionAtom)
+											if (snapshot?.projectSlug === project.slug && snapshot.sessionId) {
+												navigate({
+													to: "/project/$projectSlug/session/$sessionId",
+													params: { projectSlug: project.slug, sessionId: snapshot.sessionId },
+												})
+											} else {
+												navigate({
+													to: "/project/$projectSlug",
+													params: { projectSlug: project.slug },
+												})
+											}
 											return
 										}
+										const previewContext = appStore.get(activePreviewContextAtom)
+										appStore.set(projectToolsSessionAtom, {
+											projectSlug: project.slug,
+											sessionId: selectedSessionId,
+											previewContext:
+												previewContext?.sessionId === selectedSessionId ? previewContext : null,
+										})
 										navigate({
 											to: "/project/$projectSlug/tools",
 											params: { projectSlug: project.slug },

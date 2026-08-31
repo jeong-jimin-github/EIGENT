@@ -1,7 +1,12 @@
 import { Button } from "@palot/ui/components/button"
 import { MonitorSmartphoneIcon, RefreshCwIcon } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
-import { createWorkspacePreviewSession, devicePreviewUrl } from "../services/device-preview"
+import {
+	createWorkspacePreviewSession,
+	devicePreviewUrl,
+	fetchDevicePreviewReloadState,
+	requestDevicePreviewReload,
+} from "../services/device-preview"
 
 interface DevicePreviewViewProps {
 	root: string
@@ -14,7 +19,28 @@ export function DevicePreviewView({ root, changedFiles, revision }: DevicePrevie
 	const [entryPath, setEntryPath] = useState<string | null>(null)
 	const [error, setError] = useState<string | null>(null)
 	const [manualRevision, setManualRevision] = useState(0)
+	const [remoteRevision, setRemoteRevision] = useState(0)
 	const changedFilesKey = changedFiles.join("\u0000")
+
+	useEffect(() => {
+		const controller = new AbortController()
+		let active = true
+		const poll = async () => {
+			try {
+				const state = await fetchDevicePreviewReloadState(root, controller.signal)
+				if (active) setRemoteRevision(state.revision)
+			} catch {
+				// Reload control is optional during reconnects; keep the current preview visible.
+			}
+		}
+		void poll()
+		const timer = window.setInterval(() => void poll(), 750)
+		return () => {
+			active = false
+			controller.abort()
+			window.clearInterval(timer)
+		}
+	}, [root])
 
 	useEffect(() => {
 		let cancelled = false
@@ -43,9 +69,9 @@ export function DevicePreviewView({ root, changedFiles, revision }: DevicePrevie
 	const src = useMemo(
 		() =>
 			token && entryPath
-				? devicePreviewUrl(token, entryPath, `${revision}-${manualRevision}`)
+				? devicePreviewUrl(token, entryPath, `${revision}-${manualRevision}-${remoteRevision}`)
 				: null,
-		[token, entryPath, revision, manualRevision],
+		[token, entryPath, revision, manualRevision, remoteRevision],
 	)
 
 	return (
@@ -56,7 +82,16 @@ export function DevicePreviewView({ root, changedFiles, revision }: DevicePrevie
 				<span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
 					{entryPath ?? "Finding page entry…"}
 				</span>
-				<Button variant="ghost" size="icon-sm" title="Reload device preview" onClick={() => setManualRevision((value) => value + 1)}>
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					title="Reload device preview"
+					onClick={() => {
+						void requestDevicePreviewReload(root)
+							.then((state) => setRemoteRevision(state.revision))
+							.catch(() => setManualRevision((value) => value + 1))
+					}}
+				>
 					<RefreshCwIcon className="size-3.5" />
 				</Button>
 			</div>

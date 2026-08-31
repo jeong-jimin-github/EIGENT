@@ -7,12 +7,20 @@ export function looksLikeWebTask(text: string): boolean {
 	return WEB_TASK_PATTERN.test(text)
 }
 
+function shellSingleQuote(value: string): string {
+	return `'${value.replaceAll("'", "'\"'\"'")}'`
+}
+
 export function buildWorkspaceAgentSystemPrompt(args: {
 	workspaceRoot: string
 	isNoProject: boolean
 	userText: string
 }): string {
 	const webTask = looksLikeWebTask(args.userText)
+	const reloadPayload = shellSingleQuote(JSON.stringify({ root: args.workspaceRoot }))
+	const previewReloadCommand =
+		`curl -fsS -X POST "http://127.0.0.1:\${PORT:-3100}/api/workspace/preview-reload" ` +
+		`-H 'content-type: application/json' --data ${reloadPayload}`
 	return [
 		"EIGENT workspace/tool rules:",
 		`- The project workspace root is ${args.workspaceRoot}. Treat this exact directory as the working project root.`,
@@ -22,6 +30,8 @@ export function buildWorkspaceAgentSystemPrompt(args: {
 		"- For browser-viewable output, prefer an index.html entry when practical. EIGENT Device Preview can render workspace HTML directly on the user's device; clicking any .html/.htm file in Files opens that exact page in Device Preview.",
 		"- For React/Vite/Vue/Svelte or another dev-server app, start the server on 127.0.0.1 on a non-EIGENT port (for example 5173), then open that localhost URL with the Cloud Browser. EIGENT will proxy an active loopback tab into Device Preview on the user's device.",
 		"- Use Cloud Browser Live for external sites or browser automation; use Device Preview for the page/app being built.",
+		`- Device Preview reload tool: after browser-visible edits, run this shell command to make the user's current Device Preview reload itself: ${previewReloadCommand}`,
+		"- Use the Device Preview reload tool after a coherent batch of HTML/CSS/JS/app edits and before final visual verification. Do not ask the user to press refresh for changes you can reload yourself.",
 		webTask
 			? "- This request appears web-related: make the resulting page/app previewable before finishing, and report the workspace-relative entry path or loopback URL you verified."
 			: "- If this request creates or modifies a webpage/app later, apply the Device Preview workflow above without waiting for another instruction.",

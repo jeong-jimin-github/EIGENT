@@ -44,6 +44,26 @@ describe("workspace routes", () => {
 		const payload = (await response.json()) as { entryPath?: string }
 		expect(payload.entryPath).toBe("calculator.html")
 	})
+
+	test("lets an agent request a Device Preview reload", async () => {
+		const before = await workspaceRoutes.request("/preview-reload?root=")
+		expect(before.status).toBe(200)
+		const beforePayload = (await before.json()) as { revision: number }
+
+		const response = await workspaceRoutes.request("/preview-reload", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ root: "" }),
+		})
+		expect(response.status).toBe(200)
+		const payload = (await response.json()) as { revision: number; requestedAt: number }
+		expect(payload.revision).toBe(beforePayload.revision + 1)
+		expect(payload.requestedAt).toBeGreaterThan(0)
+
+		const after = await workspaceRoutes.request("/preview-reload?root=")
+		const afterPayload = (await after.json()) as { revision: number }
+		expect(afterPayload.revision).toBe(payload.revision)
+	})
 	test("supports No Project file CRUD through the empty logical root", async () => {
 		const listResponse = await workspaceRoutes.request("/list?root=&path=")
 		expect(listResponse.status).toBe(200)
