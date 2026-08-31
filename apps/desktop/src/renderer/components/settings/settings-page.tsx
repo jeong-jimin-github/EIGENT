@@ -7,16 +7,17 @@ import {
 	SidebarMenuItem,
 } from "@palot/ui/components/sidebar"
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
-import { ArrowLeftIcon, BellIcon, GitForkIcon, PlugIcon, SettingsIcon } from "lucide-react"
+import { ArrowLeftIcon, BellIcon, GitForkIcon, PlugIcon, ServerIcon, SettingsIcon } from "lucide-react"
 import { useEffect } from "react"
 import { useI18n } from "../../hooks/use-i18n"
 import type { TranslationKey } from "../../lib/i18n"
 import { useSetSidebarSlot } from "../sidebar-slot-context"
 
-type SettingsTab = "general" | "notifications" | "providers" | "worktrees"
+type SettingsTab = "general" | "servers" | "notifications" | "providers" | "worktrees"
 
 const tabs: { id: SettingsTab; labelKey: TranslationKey; icon: typeof SettingsIcon }[] = [
 	{ id: "general", labelKey: "settings.general", icon: SettingsIcon },
+	{ id: "servers", labelKey: "server.name", icon: ServerIcon },
 	{ id: "notifications", labelKey: "settings.notifications", icon: BellIcon },
 	{ id: "providers", labelKey: "settings.providers", icon: PlugIcon },
 	{ id: "worktrees", labelKey: "settings.worktrees", icon: GitForkIcon },
