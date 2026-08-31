@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { existsSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import path from "node:path"
@@ -114,14 +115,25 @@ function parseBackup(raw: string): ServerBackupFile {
 	}
 }
 
+function openCodeExecutable(): string {
+	const configured = process.env.EIGENT_OPENCODE_EXECUTABLE?.trim()
+	if (configured) return configured
+	const homeInstall = path.join(homedir(), ".opencode", "bin", process.platform === "win32" ? "opencode.exe" : "opencode")
+	if (existsSync(homeInstall)) return homeInstall
+	return process.platform === "win32" ? "opencode.exe" : "opencode"
+}
+
 async function runOpenCode(args: string[]): Promise<string> {
-	const executable = process.env.EIGENT_OPENCODE_EXECUTABLE?.trim() || (process.platform === "win32" ? "opencode.exe" : "opencode")
+	const home = homedir()
 	const proc = Bun.spawn({
-		cmd: [executable, ...args],
-		cwd: homedir(),
+		cmd: [openCodeExecutable(), ...args],
+		cwd: home,
 		stdout: "pipe",
 		stderr: "pipe",
-		env: process.env,
+		env: {
+			...process.env,
+			PATH: [path.join(home, ".opencode", "bin"), process.env.PATH].filter(Boolean).join(path.delimiter),
+		},
 	})
 	const [stdout, stderr, exitCode] = await Promise.all([
 		new Response(proc.stdout).text(),
