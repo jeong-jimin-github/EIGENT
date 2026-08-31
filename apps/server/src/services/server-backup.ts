@@ -68,12 +68,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isServerConfig(value: unknown): boolean {
 	if (!isRecord(value)) return false
-	if (typeof value.id !== "string" || typeof value.name !== "string" || typeof value.type !== "string") {
+	if (
+		typeof value.id !== "string" ||
+		typeof value.name !== "string" ||
+		typeof value.type !== "string"
+	) {
 		return false
 	}
 	if (value.type === "local") return value.id === "local"
 	if (value.type === "remote") return typeof value.url === "string"
-	if (value.type === "ssh") return typeof value.sshHost === "string" && typeof value.sshUser === "string"
+	if (value.type === "ssh")
+		return typeof value.sshHost === "string" && typeof value.sshUser === "string"
 	return false
 }
 
@@ -118,7 +123,12 @@ function parseBackup(raw: string): ServerBackupFile {
 function openCodeExecutable(): string {
 	const configured = process.env.EIGENT_OPENCODE_EXECUTABLE?.trim()
 	if (configured) return configured
-	const homeInstall = path.join(homedir(), ".opencode", "bin", process.platform === "win32" ? "opencode.exe" : "opencode")
+	const homeInstall = path.join(
+		homedir(),
+		".opencode",
+		"bin",
+		process.platform === "win32" ? "opencode.exe" : "opencode",
+	)
 	if (existsSync(homeInstall)) return homeInstall
 	return process.platform === "win32" ? "opencode.exe" : "opencode"
 }
@@ -132,7 +142,9 @@ async function runOpenCode(args: string[]): Promise<string> {
 		stderr: "pipe",
 		env: {
 			...process.env,
-			PATH: [path.join(home, ".opencode", "bin"), process.env.PATH].filter(Boolean).join(path.delimiter),
+			PATH: [path.join(home, ".opencode", "bin"), process.env.PATH]
+				.filter(Boolean)
+				.join(path.delimiter),
 		},
 	})
 	const [stdout, stderr, exitCode] = await Promise.all([
@@ -140,7 +152,8 @@ async function runOpenCode(args: string[]): Promise<string> {
 		new Response(proc.stderr).text(),
 		proc.exited,
 	])
-	if (exitCode !== 0) throw new Error(stderr.trim() || stdout.trim() || `OpenCode exited with code ${exitCode}`)
+	if (exitCode !== 0)
+		throw new Error(stderr.trim() || stdout.trim() || `OpenCode exited with code ${exitCode}`)
 	return stdout
 }
 
@@ -148,7 +161,9 @@ async function exportSessions(): Promise<unknown[]> {
 	const listed = JSON.parse(await runOpenCode(["session", "list", "--format", "json"])) as unknown
 	if (!Array.isArray(listed)) throw new Error("OpenCode returned an invalid session list.")
 	const sessionIds = listed
-		.filter((item): item is OpenCodeSessionListItem => isRecord(item) && typeof item.id === "string")
+		.filter(
+			(item): item is OpenCodeSessionListItem => isRecord(item) && typeof item.id === "string",
+		)
 		.map((item) => item.id)
 	const sessions: unknown[] = []
 	for (const sessionId of sessionIds) {
@@ -205,6 +220,9 @@ export async function restoreServerBackup(raw: string): Promise<ServerBackupImpo
 		credentialCount: Object.keys(backup.credentials).length,
 		sessionCount: sessions.imported,
 		failedSessionCount: sessions.failed,
-		error: sessions.failed > 0 ? `${sessions.failed} session(s) could not be restored. Authentication data was restored.` : undefined,
+		error:
+			sessions.failed > 0
+				? `${sessions.failed} session(s) could not be restored. Authentication data was restored.`
+				: undefined,
 	}
 }
