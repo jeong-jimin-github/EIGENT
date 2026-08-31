@@ -122,6 +122,10 @@ function resolveInsideRoot(root: string, relativePath = ""): string {
 	return candidate
 }
 
+export function resolveWorkspaceFilePath(root: string, relativePath = ""): string {
+	return resolveInsideRoot(root, relativePath)
+}
+
 function relativeFromRoot(root: string, target: string): string {
 	return path.relative(normalizeRoot(root), target).split(path.sep).join("/")
 }

@@ -11,7 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@palot/ui/components/po
 import { Tooltip, TooltipContent, TooltipTrigger } from "@palot/ui/components/tooltip"
 import { cn } from "@palot/ui/lib/utils"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { useAtom, useAtomValue } from "jotai"
+import { useAtom, useAtomValue, useSetAtom } from "jotai"
 import {
 	ArrowLeftIcon,
 	CheckIcon,
@@ -26,7 +26,12 @@ import {
 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { OpenInTarget } from "../../preload/api"
-import { reviewPanelOpenAtom, reviewPanelSettingsAtom, sessionDiffStatsFamily } from "../atoms/ui"
+import {
+	activePreviewContextAtom,
+	reviewPanelOpenAtom,
+	reviewPanelSettingsAtom,
+	sessionDiffStatsFamily,
+} from "../atoms/ui"
 import type {
 	ConfigData,
 	ModelRef,
@@ -143,6 +148,17 @@ export function AgentDetail({
 	const navigate = useNavigate()
 	const { projectSlug } = useParams({ strict: false }) as { projectSlug?: string }
 	const setAppBarContent = useSetAppBarContent()
+	const setActivePreviewContext = useSetAtom(activePreviewContextAtom)
+
+	useEffect(() => {
+		const context = { sessionId: agent.sessionId, directory: agent.directory }
+		setActivePreviewContext(context)
+		return () => {
+			setActivePreviewContext((current) =>
+				current?.sessionId === context.sessionId ? null : current,
+			)
+		}
+	}, [agent.directory, agent.sessionId, setActivePreviewContext])
 
 	const [isEditingTitle, setIsEditingTitle] = useState(false)
 	const [titleValue, setTitleValue] = useState(agent.name)

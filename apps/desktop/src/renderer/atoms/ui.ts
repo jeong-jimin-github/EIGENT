@@ -11,6 +11,14 @@ export const commandPaletteOpenAtom = atom(false)
  */
 export const viewedSessionIdAtom = atom<string | null>(null)
 
+export interface ActivePreviewContext {
+	sessionId: string
+	directory: string
+}
+
+/** Visible session workspace used by the global device/browser preview harness. */
+export const activePreviewContextAtom = atom<ActivePreviewContext | null>(null)
+
 // ============================================================
 // Review Panel State
 // ============================================================

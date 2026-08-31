@@ -18,6 +18,7 @@ import workspace from "./routes/workspace"
 import { ensureAgentCliInstalled, ensureAgentClisInstalled } from "./services/agent-cli-installer"
 import { browserRuntime } from "./services/browser-runtime"
 import { desktopRuntime } from "./services/desktop-runtime"
+import { proxyLoopbackPreviewRequest } from "./services/loopback-preview"
 import { providerRegistry } from "./services/provider-registry"
 import {
 	consumeMutationRateLimit,
@@ -28,6 +29,11 @@ import {
 import { ensureSingleServer } from "./services/server-manager"
 import { createTerminalSession, type TerminalSession } from "./services/terminal-session"
 import { resolveWorkspaceScope } from "./services/workspace-policy"
+import {
+	resolveWorkspacePreviewAsset,
+	rewritePreviewCss,
+	rewritePreviewHtml,
+} from "./services/workspace-preview"
 
 const app = new Hono()
 const { upgradeWebSocket, websocket } = createBunWebSocket()
@@ -322,7 +328,10 @@ function openCodeProxyCacheKey(targetUrl: URL, headers: Headers): string {
 	return `${targetUrl.pathname}${targetUrl.search}::${directory}`
 }
 
-function responseFromOpenCodeCache(entry: OpenCodeProxyCacheEntry, cacheState: "HIT" | "STALE"): Response {
+function responseFromOpenCodeCache(
+	entry: OpenCodeProxyCacheEntry,
+	cacheState: "HIT" | "STALE",
+): Response {
 	const headers = sanitizeOpenCodeResponseHeaders(new Headers(entry.headers), entry.status)
 	headers.set("X-EIGENT-OpenCode-Cache", cacheState)
 	return new Response(entry.body.slice(), {
@@ -332,7 +341,10 @@ function responseFromOpenCodeCache(entry: OpenCodeProxyCacheEntry, cacheState: "
 	})
 }
 
-async function fetchOpenCodeCached(targetUrl: URL, headers: Headers): Promise<OpenCodeProxyCacheEntry> {
+async function fetchOpenCodeCached(
+	targetUrl: URL,
+	headers: Headers,
+): Promise<OpenCodeProxyCacheEntry> {
 	const upstream = await fetch(targetUrl, { method: "GET", headers, redirect: "manual" })
 	const responseHeaders = sanitizeOpenCodeResponseHeaders(upstream.headers, upstream.status)
 	const body = new Uint8Array(await upstream.arrayBuffer())
@@ -402,7 +414,10 @@ app.all(`${OPENCODE_PROXY_PREFIX}/*`, async (c) => {
 				const age = Date.now() - cached.storedAt
 				if (age <= OPENCODE_PROXY_CACHE_STALE_MS) {
 					if (age > OPENCODE_PROXY_CACHE_FRESH_MS) refreshOpenCodeCache(targetUrl, headers)
-					return responseFromOpenCodeCache(cached, age > OPENCODE_PROXY_CACHE_FRESH_MS ? "STALE" : "HIT")
+					return responseFromOpenCodeCache(
+						cached,
+						age > OPENCODE_PROXY_CACHE_FRESH_MS ? "STALE" : "HIT",
+					)
 				}
 				openCodeProxyCache.delete(key)
 			}
@@ -452,6 +467,51 @@ export type AppType = typeof routes
 
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404))
 
+app.get("/preview/:token/*", async (c) => {
+	try {
+		const token = c.req.param("token")
+		const requestPath = c.req.param("*") || "index.html"
+		const asset = await resolveWorkspacePreviewAsset(token, requestPath)
+		const file = Bun.file(asset.absolutePath)
+		const headers = new Headers({
+			"Cache-Control": "no-store",
+			"Referrer-Policy": "no-referrer",
+			"X-Content-Type-Options": "nosniff",
+		})
+		if (file.type) headers.set("Content-Type", file.type)
+
+		if (/\.html?$/i.test(asset.relativePath)) {
+			const html = rewritePreviewHtml(await file.text(), token)
+			headers.set("Content-Type", "text/html; charset=utf-8")
+			return new Response(html, { headers })
+		}
+
+		if (/\.css$/i.test(asset.relativePath)) {
+			const css = rewritePreviewCss(await file.text(), token)
+			headers.set("Content-Type", "text/css; charset=utf-8")
+			return new Response(css, { headers })
+		}
+
+		return new Response(file, { headers })
+	} catch (err) {
+		return c.text(err instanceof Error ? err.message : "Workspace preview failed", 404)
+	}
+})
+
+app.get("/preview/:token", (c) => c.redirect(`/preview/${c.req.param("token")}/index.html`))
+
+app.all("/local-preview/:token/*", async (c) => {
+	try {
+		return await proxyLoopbackPreviewRequest(
+			c.req.param("token"),
+			c.req.param("*") || "",
+			c.req.raw,
+		)
+	} catch (err) {
+		return c.text(err instanceof Error ? err.message : "Loopback preview failed", 502)
+	}
+})
+
 const webRoot =
 	process.env.EIGENT_WEB_ROOT ?? path.resolve(import.meta.dir, "../../desktop/dist-web")
 
@@ -500,7 +560,10 @@ void ensureAgentClisInstalled()
 	.then(() => providerRegistry.refreshSnapshots())
 	.then(() => console.log("Agent provider snapshot cache warmed"))
 	.catch((err) => {
-		console.warn("Automatic agent CLI/provider warmup failed:", err instanceof Error ? err.message : err)
+		console.warn(
+			"Automatic agent CLI/provider warmup failed:",
+			err instanceof Error ? err.message : err,
+		)
 	})
 
 void (async () => {
