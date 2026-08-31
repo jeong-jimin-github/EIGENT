@@ -26,6 +26,15 @@ export async function createWorkspacePreviewSession(
 	return data
 }
 
+
+export async function findWorkspacePreviewEntry(root: string): Promise<string | null> {
+	const params = new URLSearchParams({ root })
+	const response = await fetch(`/api/workspace/preview-entry?${params}`, { cache: "no-store" })
+	const data = (await response.json()) as { entryPath?: string | null; error?: string }
+	if (!response.ok) throw new Error(data.error ?? `${response.status} ${response.statusText}`)
+	return data.entryPath ?? null
+}
+
 export function devicePreviewUrl(token: string, entryPath: string, revision: string): string {
 	const encodedPath = entryPath
 		.replaceAll("\\", "/")
@@ -66,6 +75,11 @@ export function loopbackPreviewUrl(token: string, initialPath: string, revision:
 		.join("/")
 	parsed.searchParams.set("eigent_preview_revision", revision)
 	return `/local-preview/${token}/${encodedPath}${parsed.search}`
+}
+
+
+export function isHtmlPreviewPath(file: string): boolean {
+	return /\.html?$/i.test(file)
 }
 
 const WEB_PREVIEW_SIGNAL_EXTENSIONS = /\.(?:html?|css|s[ac]ss|less|jsx|tsx|vue|svelte)$/i

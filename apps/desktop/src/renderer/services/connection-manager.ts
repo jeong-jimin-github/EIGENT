@@ -207,6 +207,7 @@ export async function addProject(directory: string) {
 
 /** Remove a project from the EIGENT workspace UI without deleting files on disk. */
 export function removeProject(directory: string): void {
+	if (!directory.trim()) return
 	appStore.set(hiddenProjectDirectoriesAtom, (prev) =>
 		prev.includes(directory) ? prev : [...prev, directory],
 	)

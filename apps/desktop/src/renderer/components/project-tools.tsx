@@ -22,6 +22,7 @@ import {
 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useProjectList } from "../hooks/use-agents"
+import { isHtmlPreviewPath } from "../services/device-preview"
 import { fetchRecoverySnapshot, reconnectDelay, watchRecoverySnapshots } from "../services/eigent-recovery"
 import {
 	createWorkspaceDirectory,
@@ -39,11 +40,25 @@ import {
 import { useSetAppBarContent } from "./app-bar-context"
 import { BrowserLiveView } from "./browser-live-view"
 import { DesktopControlView } from "./desktop-control-view"
+import { DevicePreviewView } from "./device-preview-view"
 
 export function ProjectTools() {
 	const { projectSlug } = useParams({ strict: false }) as { projectSlug?: string }
 	const projects = useProjectList()
-	const project = projects.find((item) => item.slug === projectSlug)
+	const project =
+		projects.find((item) => item.slug === projectSlug) ??
+		(projectSlug === "no-project"
+			? {
+					id: "__eigent-no-project__",
+					slug: "no-project",
+					name: "No Project",
+					directory: "",
+					agentCount: 0,
+					lastActiveAt: 0,
+					hasActiveAgent: false,
+					isNoProject: true,
+				}
+			: undefined)
 	const setAppBarContent = useSetAppBarContent()
 	const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
 	const [workspaceError, setWorkspaceError] = useState<string | null>(null)
@@ -127,6 +142,8 @@ function FilesPanel({ root }: { root: string }) {
 	const [selectedPath, setSelectedPath] = useState<string | null>(null)
 	const [content, setContent] = useState("")
 	const [savedContent, setSavedContent] = useState("")
+	const [fileView, setFileView] = useState<"source" | "preview">("source")
+	const [previewRevision, setPreviewRevision] = useState(0)
 	const [loading, setLoading] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 
@@ -153,6 +170,7 @@ function FilesPanel({ root }: { root: string }) {
 				setSelectedPath(null)
 				setContent("")
 				setSavedContent("")
+				setFileView("source")
 				return
 			}
 			if (entry.type !== "file") return
@@ -162,6 +180,8 @@ function FilesPanel({ root }: { root: string }) {
 				setSelectedPath(file.path)
 				setContent(file.content)
 				setSavedContent(file.content)
+				setFileView(isHtmlPreviewPath(file.path) ? "preview" : "source")
+				if (isHtmlPreviewPath(file.path)) setPreviewRevision((value) => value + 1)
 			} catch (err) {
 				setError(err instanceof Error ? err.message : "Failed to read file")
 			}
@@ -193,6 +213,7 @@ function FilesPanel({ root }: { root: string }) {
 		try {
 			await writeWorkspaceFile(root, selectedPath, content)
 			setSavedContent(content)
+			if (isHtmlPreviewPath(selectedPath)) setPreviewRevision((value) => value + 1)
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to save file")
 		}
@@ -254,6 +275,24 @@ function FilesPanel({ root }: { root: string }) {
 					</div>
 					{selectedPath ? (
 						<>
+							{isHtmlPreviewPath(selectedPath) ? (
+								<>
+									<Button
+										variant={fileView === "preview" ? "secondary" : "ghost"}
+										size="sm"
+										onClick={() => setFileView("preview")}
+									>
+										Preview
+									</Button>
+									<Button
+										variant={fileView === "source" ? "secondary" : "ghost"}
+										size="sm"
+										onClick={() => setFileView("source")}
+									>
+										Source
+									</Button>
+								</>
+							) : null}
 							<Button variant="ghost" size="sm" onClick={removeSelected}>
 								<Trash2Icon aria-hidden="true" className="size-3.5" />
 								Delete
@@ -266,7 +305,13 @@ function FilesPanel({ root }: { root: string }) {
 					) : null}
 				</div>
 				{error ? <div className="shrink-0 border-b px-3 py-2 text-xs text-destructive">{error}</div> : null}
-				{selectedPath ? (
+				{selectedPath && isHtmlPreviewPath(selectedPath) && fileView === "preview" ? (
+					<DevicePreviewView
+						root={root}
+						changedFiles={[selectedPath]}
+						revision={`${selectedPath}-${previewRevision}`}
+					/>
+				) : selectedPath ? (
 					<Textarea
 						value={content}
 						onChange={(event) => setContent(event.target.value)}

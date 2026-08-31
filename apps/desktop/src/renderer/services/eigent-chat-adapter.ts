@@ -22,6 +22,7 @@ import {
 	type UnifiedAgentSession,
 } from "./eigent-agents"
 import { replayUnifiedAgentRuns } from "./eigent-history"
+import { workspaceAgentSystemPrompt } from "./workspace-agent-context"
 import { streamAgentEvents } from "./eigent-recovery"
 
 const activeRuns = new Map<string, { agentSessionId: string; controller: AbortController }>()
@@ -346,11 +347,13 @@ export async function sendUnifiedAgentPrompt(args: {
 
 	try {
 		if (!agentSessionId) {
+			const systemPrompt = await workspaceAgentSystemPrompt(args.workspace, args.message)
 			const session = await createUnifiedAgentSession({
 				provider: args.runtime.provider,
 				workspace: args.workspace,
 				model: args.runtime.model,
 				yolo: true,
+				systemPrompt,
 				uiSessionId: args.uiSessionId,
 			})
 			agentSessionId = session.id

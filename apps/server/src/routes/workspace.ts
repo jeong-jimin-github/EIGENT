@@ -1,6 +1,9 @@
 import { Hono } from "hono"
 import { resolveWorkspaceScope } from "../services/workspace-policy"
-import { createWorkspacePreviewSession } from "../services/workspace-preview"
+import {
+	createWorkspacePreviewSession,
+	findWorkspacePreviewEntry,
+} from "../services/workspace-preview"
 import {
 	createProjectDirectory,
 	createWorkspaceDirectory,
@@ -24,9 +27,17 @@ const app = new Hono()
 			return c.json({ error: message(err) }, 400)
 		}
 	})
+	.get("/preview-entry", async (c) => {
+		try {
+			const root = c.req.query("root") ?? ""
+			return c.json({ entryPath: await findWorkspacePreviewEntry(root) }, 200)
+		} catch (err) {
+			return c.json({ error: message(err) }, 400)
+		}
+	})
 	.post("/preview-token", async (c) => {
 		const body = (await c.req.json()) as { root?: string; changedFiles?: string[] }
-		if (!body.root) return c.json({ error: "root is required" }, 400)
+		if (typeof body.root !== "string") return c.json({ error: "root is required" }, 400)
 		try {
 			const changedFiles = Array.isArray(body.changedFiles)
 				? body.changedFiles.filter((file): file is string => typeof file === "string").slice(0, 500)

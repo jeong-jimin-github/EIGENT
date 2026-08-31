@@ -465,7 +465,8 @@ export const projectListAtom = (() => {
 				pa.directory !== pb.directory ||
 				pa.agentCount !== pb.agentCount ||
 				pa.lastActiveAt !== pb.lastActiveAt ||
-				pa.hasActiveAgent !== pb.hasActiveAgent
+				pa.hasActiveAgent !== pb.hasActiveAgent ||
+				pa.isNoProject !== pb.isNoProject
 			) {
 				return false
 			}
@@ -482,6 +483,19 @@ export const projectListAtom = (() => {
 
 		const projects = new Map<string, SidebarProject>()
 
+		// No Project is a real, persistent EIGENT project. Its logical directory stays
+		// empty so server-side workspace policy resolves it to the managed _no-project root.
+		projects.set("", {
+			id: "__eigent-no-project__",
+			slug: "no-project",
+			name: "No Project",
+			directory: "",
+			agentCount: 0,
+			lastActiveAt: 0,
+			hasActiveAgent: false,
+			isNoProject: true,
+		})
+
 		// Live sessions grouped by directory.
 		// Sessions in sandbox directories are counted under their parent project.
 		// Sub-agent sessions are excluded from sidebar counts (they arrive via SSE
@@ -494,10 +508,10 @@ export const projectListAtom = (() => {
 			const entry = get(sessionFamily(id))
 			if (!entry) continue
 			if (entry.session.parentID) continue
-			if (!entry.directory) continue
 
-			// Remap sandbox directories to their parent project
-			const parentDir = sandboxToParent.get(entry.directory)
+			// Remap sandbox directories to their parent project. Empty directory is the
+			// built-in No Project project and must not be discarded.
+			const parentDir = entry.directory ? sandboxToParent.get(entry.directory) : undefined
 			const dir = parentDir ?? entry.directory
 			if (hiddenProjects.has(dir)) continue
 			const projectInfo = slugMap.get(dir)

@@ -16,6 +16,7 @@ import type {
 	UserMessage,
 } from "../lib/types"
 import { getProjectClient } from "../services/connection-manager"
+import { workspaceAgentSystemPrompt } from "../services/workspace-agent-context"
 
 const log = createLogger("use-server")
 
@@ -135,9 +136,11 @@ export function useAgentActions() {
 				partsCount: parts.length,
 			})
 			try {
+				const system = await workspaceAgentSystemPrompt(directory, text)
 				const result = await client.session.promptAsync({
 					sessionID: sessionId,
 					parts,
+					system,
 					model: options?.model
 						? { providerID: options.model.providerID, modelID: options.model.modelID }
 						: undefined,

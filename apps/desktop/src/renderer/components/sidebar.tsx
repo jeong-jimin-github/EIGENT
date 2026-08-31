@@ -375,7 +375,7 @@ export function AppSidebarContent({
 									onRename={onRenameSession}
 									onDelete={onDeleteSession}
 									onFork={onForkSession}
-									onRemoveProject={onRemoveProject}
+									onRemoveProject={project.isNoProject ? undefined : onRemoveProject}
 								/>
 							))}
 								{projectSearch && filteredProjects.length === 0 && (

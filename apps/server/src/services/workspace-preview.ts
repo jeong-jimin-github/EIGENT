@@ -1,6 +1,6 @@
 /** Tokenized workspace preview sessions for isolated device-side rendering. */
 import { randomBytes } from "node:crypto"
-import { stat } from "node:fs/promises"
+import { readdir, stat } from "node:fs/promises"
 import path from "node:path"
 import { resolveWorkspaceScope } from "./workspace-policy"
 import { resolveWorkspaceFilePath } from "./workspace-service"
@@ -75,7 +75,23 @@ export async function findWorkspacePreviewEntry(root: string, changedFiles: stri
 			// Ignore malformed/out-of-root changed-file hints and continue with safe candidates.
 		}
 	}
-	return null
+
+	// No-project work is often not a git checkout, so it may have no diff metadata.
+	// Fall back to a top-level HTML page (newest first) so a generated foo.html can
+	// still activate Device Preview automatically. Keep this bounded to one directory.
+	const rootEntries = await readdir(normalizedRoot, { withFileTypes: true }).catch(() => [])
+	const htmlCandidates = await Promise.all(
+		rootEntries
+			.filter((entry) => entry.isFile() && /\.html?$/i.test(entry.name))
+			.slice(0, 100)
+			.map(async (entry) => {
+				const target = resolveWorkspaceFilePath(normalizedRoot, entry.name)
+				const info = await stat(target).catch(() => null)
+				return { name: entry.name, modifiedAt: info?.mtimeMs ?? 0 }
+			}),
+	)
+	htmlCandidates.sort((a, b) => b.modifiedAt - a.modifiedAt || a.name.localeCompare(b.name))
+	return htmlCandidates[0]?.name ?? null
 }
 
 export async function createWorkspacePreviewSession(root: string, changedFiles: string[] = []) {

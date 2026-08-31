@@ -200,6 +200,7 @@ export function SidebarLayout() {
 
 	const handleRemoveProject = useCallback(
 		(project: SidebarProject) => {
+			if (project.isNoProject) return
 			removeProject(project.directory)
 			navigate({ to: "/" })
 		},

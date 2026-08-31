@@ -3,6 +3,7 @@ import type { FileDiff } from "../lib/types"
 import {
 	devicePreviewUrl,
 	hasWebPreviewChanges,
+	isHtmlPreviewPath,
 	isLoopbackPreviewUrl,
 	loopbackPreviewUrl,
 	webPreviewChangedFiles,
@@ -14,6 +15,12 @@ function diff(file: string, after: string): FileDiff {
 }
 
 describe("device preview diff detection", () => {
+	test("recognizes HTML files for direct Files preview", () => {
+		expect(isHtmlPreviewPath("index.html")).toBe(true)
+		expect(isHtmlPreviewPath("pages/demo.HTM")).toBe(true)
+		expect(isHtmlPreviewPath("styles.css")).toBe(false)
+	})
+
 	test("recognizes webpage source changes and filters non-web files", () => {
 		const diffs = [diff("README.md", "docs"), diff("src/App.tsx", "export default 1"), diff("style.css", "body{}")]
 		expect(hasWebPreviewChanges(diffs)).toBe(true)

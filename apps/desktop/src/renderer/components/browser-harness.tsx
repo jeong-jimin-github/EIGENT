@@ -4,6 +4,7 @@ import { useAtomValue } from "jotai"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { activePreviewContextAtom, sessionDiffFamily } from "../atoms/ui"
 import {
+	findWorkspacePreviewEntry,
 	hasWebPreviewChanges,
 	isLoopbackPreviewUrl,
 	webPreviewChangedFiles,
@@ -31,13 +32,15 @@ export function BrowserHarness() {
 
 	const [cloudAvailable, setCloudAvailable] = useState(false)
 	const [loopbackUrl, setLoopbackUrl] = useState<string | null>(null)
+	const [workspaceEntryPath, setWorkspaceEntryPath] = useState<string | null>(null)
 	const [mode, setMode] = useState<PreviewMode | null>(null)
 	const dismissedRef = useRef(false)
-	const deviceAvailable = Boolean(loopbackUrl || hasWorkspaceWebChanges)
+	const deviceAvailable = Boolean(loopbackUrl || hasWorkspaceWebChanges || workspaceEntryPath)
 
 	useEffect(() => {
 		dismissedRef.current = false
 		setMode(null)
+		setWorkspaceEntryPath(null)
 	}, [previewContext?.sessionId])
 
 	useEffect(() => {
@@ -45,6 +48,16 @@ export function BrowserHarness() {
 	}, [deviceAvailable])
 
 	const checkStatus = useCallback(async () => {
+		let nextWorkspaceEntryPath: string | null = null
+		if (previewContext) {
+			try {
+				nextWorkspaceEntryPath = await findWorkspacePreviewEntry(previewContext.directory)
+			} catch {
+				nextWorkspaceEntryPath = null
+			}
+		}
+		setWorkspaceEntryPath(nextWorkspaceEntryPath)
+
 		try {
 			const response = await fetch("/api/browser/status", { cache: "no-store" })
 			if (!response.ok) return
@@ -54,13 +67,19 @@ export function BrowserHarness() {
 			const nextLoopbackUrl = tabs.find((tab) => isLoopbackPreviewUrl(tab.url))?.url ?? null
 			setCloudAvailable(nextCloudAvailable)
 			setLoopbackUrl(nextLoopbackUrl)
-			if (!nextLoopbackUrl && !hasWorkspaceWebChanges && nextCloudAvailable && !dismissedRef.current) {
+			if (
+				!nextLoopbackUrl &&
+				!hasWorkspaceWebChanges &&
+				!nextWorkspaceEntryPath &&
+				nextCloudAvailable &&
+				!dismissedRef.current
+			) {
 				setMode("cloud")
 			}
 		} catch {
 			// The cloud browser runtime is optional. Keep the chat usable while it is offline.
 		}
-	}, [hasWorkspaceWebChanges])
+	}, [hasWorkspaceWebChanges, previewContext])
 
 	useEffect(() => {
 		void checkStatus()
