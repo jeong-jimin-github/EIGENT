@@ -44,4 +44,48 @@ describe("workspace routes", () => {
 		const payload = (await response.json()) as { entryPath?: string }
 		expect(payload.entryPath).toBe("calculator.html")
 	})
+	test("supports No Project file CRUD through the empty logical root", async () => {
+		const listResponse = await workspaceRoutes.request("/list?root=&path=")
+		expect(listResponse.status).toBe(200)
+		const listPayload = (await listResponse.json()) as { entries: Array<{ name: string }> }
+		expect(listPayload.entries.some((entry) => entry.name === "calculator.html")).toBe(true)
+
+		const readResponse = await workspaceRoutes.request("/read?root=&path=calculator.html")
+		expect(readResponse.status).toBe(200)
+		const readPayload = (await readResponse.json()) as { content: string }
+		expect(readPayload.content).toContain("Calculator")
+
+		const writeResponse = await workspaceRoutes.request("/write", {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ root: "", path: "notes.txt", content: "hello no-project" }),
+		})
+		expect(writeResponse.status).toBe(200)
+
+		const mkdirResponse = await workspaceRoutes.request("/mkdir", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ root: "", path: "nested" }),
+		})
+		expect(mkdirResponse.status).toBe(200)
+
+		const renameResponse = await workspaceRoutes.request("/rename", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ root: "", from: "notes.txt", to: "nested/notes.txt" }),
+		})
+		expect(renameResponse.status).toBe(200)
+
+		const movedRead = await workspaceRoutes.request("/read?root=&path=nested%2Fnotes.txt")
+		expect(movedRead.status).toBe(200)
+		const movedPayload = (await movedRead.json()) as { content: string }
+		expect(movedPayload.content).toBe("hello no-project")
+
+		const deleteResponse = await workspaceRoutes.request("/path", {
+			method: "DELETE",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ root: "", path: "nested" }),
+		})
+		expect(deleteResponse.status).toBe(200)
+	})
 })

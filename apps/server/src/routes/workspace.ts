@@ -66,7 +66,7 @@ const app = new Hono()
 	.get("/list", async (c) => {
 		const root = c.req.query("root")
 		const targetPath = c.req.query("path") ?? ""
-		if (!root) return c.json({ error: "root is required" }, 400)
+		if (root === undefined) return c.json({ error: "root is required" }, 400)
 		try {
 			return c.json({ entries: await listWorkspace(root, targetPath) }, 200)
 		} catch (err) {
@@ -76,7 +76,8 @@ const app = new Hono()
 	.get("/read", async (c) => {
 		const root = c.req.query("root")
 		const targetPath = c.req.query("path")
-		if (!root || !targetPath) return c.json({ error: "root and path are required" }, 400)
+		if (root === undefined || !targetPath)
+			return c.json({ error: "root and path are required" }, 400)
 		try {
 			return c.json(await readWorkspaceText(root, targetPath), 200)
 		} catch (err) {
@@ -85,7 +86,7 @@ const app = new Hono()
 	})
 	.put("/write", async (c) => {
 		const body = (await c.req.json()) as { root?: string; path?: string; content?: string }
-		if (!body.root || !body.path || typeof body.content !== "string") {
+		if (typeof body.root !== "string" || !body.path || typeof body.content !== "string") {
 			return c.json({ error: "root, path and content are required" }, 400)
 		}
 		try {
@@ -96,7 +97,9 @@ const app = new Hono()
 	})
 	.post("/mkdir", async (c) => {
 		const body = (await c.req.json()) as { root?: string; path?: string }
-		if (!body.root || !body.path) return c.json({ error: "root and path are required" }, 400)
+		if (typeof body.root !== "string" || !body.path) {
+			return c.json({ error: "root and path are required" }, 400)
+		}
 		try {
 			return c.json(await createWorkspaceDirectory(body.root, body.path), 200)
 		} catch (err) {
@@ -105,7 +108,7 @@ const app = new Hono()
 	})
 	.post("/rename", async (c) => {
 		const body = (await c.req.json()) as { root?: string; from?: string; to?: string }
-		if (!body.root || !body.from || !body.to) {
+		if (typeof body.root !== "string" || !body.from || !body.to) {
 			return c.json({ error: "root, from and to are required" }, 400)
 		}
 		try {
@@ -116,7 +119,9 @@ const app = new Hono()
 	})
 	.delete("/path", async (c) => {
 		const body = (await c.req.json()) as { root?: string; path?: string }
-		if (!body.root || !body.path) return c.json({ error: "root and path are required" }, 400)
+		if (typeof body.root !== "string" || !body.path) {
+			return c.json({ error: "root and path are required" }, 400)
+		}
 		try {
 			return c.json(await deleteWorkspacePath(body.root, body.path), 200)
 		} catch (err) {
