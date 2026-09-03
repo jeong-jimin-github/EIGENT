@@ -17,6 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@palot/ui/components/po
 import { Tooltip, TooltipContent, TooltipTrigger } from "@palot/ui/components/tooltip"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useAtomValue } from "jotai"
+import { discoveryLoadedAtom } from "../atoms/discovery"
 import {
 	ChevronDownIcon,
 	CodeIcon,
@@ -212,6 +213,7 @@ function DraftSync({ setDraft }: { setDraft: (text: string) => void }) {
 export function NewChat() {
 	const { projectSlug } = useParams({ strict: false })
 	const projects = useProjectList()
+	const discoveryLoaded = useAtomValue(discoveryLoadedAtom)
 	const { createSession, sendPrompt } = useAgentActions()
 	const navigate = useNavigate()
 	const { t } = useI18n()
@@ -296,10 +298,18 @@ export function NewChat() {
 		[projects, selectedDirectory],
 	)
 
-	const { data: providers } = useProviders(selectedDirectory)
-	const { data: config } = useConfig(selectedDirectory)
+	// On the generic new-chat route, selectedDirectory starts as "" before discovery
+	// auto-selects the first project. Avoid loading the global No Project config/model
+	// set during that transient render; on low-memory hosts those duplicate OpenCode
+	// requests make cold start substantially slower. Explicit No Project routes still
+	// load the global scope immediately, and an installation with no projects falls
+	// back to it once discovery is complete.
+	const openCodeScopeReady =
+		projectSlug === NO_PROJECT_SLUG || !!selectedDirectory || (discoveryLoaded && projects.length === 0)
+	const { data: providers } = useProviders(selectedDirectory, openCodeScopeReady)
+	const { data: config } = useConfig(selectedDirectory, openCodeScopeReady)
 	const { data: vcs, reload: reloadVcs } = useVcs(selectedDirectory || null)
-	const { agents: openCodeAgents } = useOpenCodeAgents(selectedDirectory)
+	const { agents: openCodeAgents } = useOpenCodeAgents(selectedDirectory, openCodeScopeReady)
 	const { recentModels, addRecent: addRecentModel } = useModelState()
 
 	// Handle model selection — set local state + persist to model.json.
@@ -337,7 +347,7 @@ export function NewChat() {
 	// Callback when branch is switched via the BranchPicker — forces VCS reload
 	const handleBranchChanged = useCallback(
 		(_branch: string) => {
-			// VCS hook polls every 30s, but we want immediate UI update.
+			// VCS hook polls every 60s, but we want immediate UI update.
 			// The SSE vcs.branch.updated event will also fire eventually.
 			reloadVcs()
 		},

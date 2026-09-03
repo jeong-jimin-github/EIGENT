@@ -164,7 +164,7 @@ export const queryKeys = {
 // Hooks (TanStack Query)
 // ============================================================
 
-export function useProviders(directory: string | null): {
+export function useProviders(directory: string | null, enabled = true): {
 	data: ProvidersData | null
 	loading: boolean
 	error: string | null
@@ -191,7 +191,7 @@ export function useProviders(directory: string | null): {
 			}
 		},
 		// No Project is a valid global scope and must still expose models.
-		enabled: connected && !isMockMode,
+		enabled: enabled && connected && !isMockMode,
 		// Provider/model data is essential UI state. Retry transient VPS/network
 		// stalls more aggressively and keep the last successful value visible.
 		retry: 4,
@@ -220,7 +220,7 @@ export function useProviders(directory: string | null): {
 	}
 }
 
-export function useConfig(directory: string | null): {
+export function useConfig(directory: string | null, enabled = true): {
 	data: ConfigData | null
 	loading: boolean
 	error: string | null
@@ -246,7 +246,7 @@ export function useConfig(directory: string | null): {
 					: undefined,
 			}
 		},
-		enabled: directory !== null && connected && !isMockMode,
+		enabled: enabled && directory !== null && connected && !isMockMode,
 	})
 
 	const reload = useCallback(() => {
@@ -310,7 +310,7 @@ export function useVcs(directory: string | null): {
 	}
 }
 
-export function useOpenCodeAgents(directory: string | null): {
+export function useOpenCodeAgents(directory: string | null, enabled = true): {
 	agents: SdkAgent[]
 	loading: boolean
 	error: string | null
@@ -329,7 +329,7 @@ export function useOpenCodeAgents(directory: string | null): {
 			const raw = (result.data ?? []) as SdkAgent[]
 			return raw.filter((a) => (a.mode === "primary" || a.mode === "all") && !a.hidden)
 		},
-		enabled: directory !== null && connected && !isMockMode,
+		enabled: enabled && directory !== null && connected && !isMockMode,
 	})
 
 	const reload = useCallback(() => {
