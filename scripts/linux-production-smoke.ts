@@ -122,6 +122,8 @@ const server = Bun.spawn({
 		EIGENT_ALLOWED_HOSTS: host,
 		EIGENT_ALLOWED_ORIGINS: httpBase,
 		EIGENT_MUTATION_RATE_LIMIT_PER_MINUTE: "600",
+		// Match the low-memory deployment: all expensive runtimes/providers start lazily.
+		EIGENT_BROWSER_LOW_MEMORY: "true",
 		// The production readiness contract requires a browser executable to be installed,
 		// but this smoke never launches the browser. Point discovery at Bun so readiness
 		// exercises the healthy-idle path without depending on a runner-specific Chrome install.

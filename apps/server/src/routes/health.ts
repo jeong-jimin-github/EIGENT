@@ -71,7 +71,10 @@ const app = new Hono()
 						}
 					: { ok: false, state: "error" },
 			agents: {
-				ok: providers !== null,
+				// Provider snapshots are intentionally lazy on low-memory hosts. A cold cache
+				// does not make the server unready because the first provider request can fill it.
+				ok: true,
+				cached: providers !== null,
 				providers: providers?.length ?? 0,
 			},
 			processes: {
