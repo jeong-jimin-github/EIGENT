@@ -8,6 +8,7 @@ import path from "node:path"
 
 export type DesktopRuntimeState = "idle" | "starting" | "ready" | "error" | "unsupported"
 export type DesktopControlOwner = "agent" | "user"
+type DesktopChildKind = "xvfb" | "openbox" | "x11vnc"
 
 export function reconcileDesktopRuntimeState(
 	current: DesktopRuntimeState,
@@ -149,7 +150,7 @@ export class DesktopRuntime {
 	private lastError?: string
 	private controlOwner: DesktopControlOwner = "agent"
 	private controlEpoch = 0
-	private readonly children = new Map<"xvfb" | "openbox" | "x11vnc", ChildProcess>()
+	private readonly children = new Map<DesktopChildKind, ChildProcess>()
 	private readonly commandCache = new Map<string, string | undefined>()
 	private idleTimer?: ReturnType<typeof setTimeout>
 	private lastActivityAt = 0
@@ -281,6 +282,7 @@ export class DesktopRuntime {
 	private stopManagedRuntime(): void {
 		this.clearIdleTimer()
 		if (!this.config.managed) return
+		this.state = "idle"
 		for (const kind of ["x11vnc", "openbox", "xvfb"] as const) {
 			const child = this.children.get(kind)
 			const remembered = this.rememberedPid(kind)
@@ -301,24 +303,23 @@ export class DesktopRuntime {
 			this.forgetPid(kind)
 		}
 		this.children.clear()
-		this.state = "idle"
 		this.lastError = undefined
 	}
 
-	private pidFile(kind: "xvfb" | "openbox" | "x11vnc"): string {
+	private pidFile(kind: DesktopChildKind): string {
 		return path.join(this.pidDir, `${kind}.pid`)
 	}
 
-	private rememberPid(kind: "xvfb" | "openbox" | "x11vnc", pid: number): void {
+	private rememberPid(kind: DesktopChildKind, pid: number): void {
 		writeFileSync(this.pidFile(kind), String(pid))
 	}
 
-	private forgetPid(kind: "xvfb" | "openbox" | "x11vnc"): void {
+	private forgetPid(kind: DesktopChildKind): void {
 		const filename = this.pidFile(kind)
 		if (existsSync(filename)) unlinkSync(filename)
 	}
 
-	private rememberedPid(kind: "xvfb" | "openbox" | "x11vnc"): number | undefined {
+	private rememberedPid(kind: DesktopChildKind): number | undefined {
 		const filename = this.pidFile(kind)
 		if (!existsSync(filename) || process.platform !== "linux") return undefined
 		const pid = Number.parseInt(readFileSync(filename, "utf8").trim(), 10)
@@ -341,11 +342,15 @@ export class DesktopRuntime {
 		}
 	}
 
-	private launchDetached(
-		kind: "xvfb" | "openbox" | "x11vnc",
-		command: string,
-		args: string[],
-	): void {
+	private handleUnexpectedChildExit(kind: DesktopChildKind): void {
+		if (!this.config.managed || this.state !== "ready") return
+		const label = kind === "xvfb" ? "Xvfb" : kind === "x11vnc" ? "x11vnc" : "openbox"
+		this.stopManagedRuntime()
+		this.state = "error"
+		this.lastError = `Managed desktop ${label} exited unexpectedly`
+	}
+
+	private launchDetached(kind: DesktopChildKind, command: string, args: string[]): void {
 		const executable = this.commandExecutable(command)
 		if (!executable) throw new Error(`${command} is required for the managed desktop runtime`)
 		const child = spawn(executable, args, {
@@ -357,9 +362,11 @@ export class DesktopRuntime {
 		this.children.set(kind, child)
 		if (child.pid) this.rememberPid(kind, child.pid)
 		child.once("exit", () => {
-			if (this.children.get(kind) === child) this.children.delete(kind)
+			const wasCurrent = this.children.get(kind) === child
+			if (wasCurrent) this.children.delete(kind)
 			const remembered = this.rememberedPid(kind)
 			if (remembered === undefined || remembered === child.pid) this.forgetPid(kind)
+			if (wasCurrent) this.handleUnexpectedChildExit(kind)
 		})
 	}
 
@@ -455,6 +462,29 @@ export class DesktopRuntime {
 		this.stopManagedRuntime()
 		await delay(500)
 		await this.ensureReady()
+	}
+
+	async healthStatus(): Promise<DesktopRuntimeStatus> {
+		if (!this.config.managed) return this.status()
+		const supported = this.config.enabled && process.platform === "linux"
+		const ready = supported && this.state === "ready"
+		return {
+			...this.config,
+			state: supported ? this.state : "unsupported",
+			supported,
+			ready,
+			controlOwner: this.controlOwner,
+			controlEpoch: this.controlEpoch,
+			lastError: this.lastError,
+			xReady: ready,
+			vncReady: ready,
+			pids: Object.fromEntries(
+				(["xvfb", "openbox", "x11vnc"] as const)
+					.map((kind) => [kind, this.children.get(kind)?.pid ?? this.rememberedPid(kind)] as const)
+					.filter((entry): entry is readonly [(typeof entry)[0], number] => entry[1] !== undefined),
+			),
+			missingCommands: supported ? this.missingCommands() : [...REQUIRED_COMMANDS],
+		}
 	}
 
 	async status(): Promise<DesktopRuntimeStatus> {

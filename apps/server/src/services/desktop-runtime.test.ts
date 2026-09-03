@@ -155,3 +155,59 @@ describe("DesktopRuntime status reconciliation", () => {
 		expect(reconcileDesktopRuntimeState("idle", false, false, false)).toBe("unsupported")
 	})
 })
+
+describe("DesktopRuntime passive health", () => {
+	test("cleans up sibling managed children after an unexpected child exit", () => {
+		const runtime = new DesktopRuntime({
+			...runtimeConfig(temporaryDirectory()),
+			managed: true,
+			idleTimeoutMs: 0,
+		})
+		const killed: number[] = []
+		const fakeChild = (pid: number) => ({
+			pid,
+			kill() {
+				killed.push(pid)
+				return true
+			},
+		})
+		const internal = runtime as unknown as {
+			state: import("./desktop-runtime").DesktopRuntimeState
+			lastError?: string
+			children: Map<string, ReturnType<typeof fakeChild>>
+			handleUnexpectedChildExit(kind: "xvfb" | "openbox" | "x11vnc"): void
+		}
+		internal.children.set("xvfb", fakeChild(4301))
+		internal.children.set("openbox", fakeChild(4302))
+		internal.children.set("x11vnc", fakeChild(4303))
+		internal.state = "ready"
+		internal.children.delete("x11vnc")
+
+		internal.handleUnexpectedChildExit("x11vnc")
+
+		expect(String(internal.state)).toBe("error")
+		expect(internal.lastError).toContain("x11vnc")
+		expect(killed.sort()).toEqual([4301, 4302])
+		expect(internal.children.size).toBe(0)
+	})
+
+	test("uses cached dependency discovery for repeated managed health snapshots", async () => {
+		let calls = 0
+		const runtime = new DesktopRuntime(
+			{ ...runtimeConfig(temporaryDirectory()), managed: true },
+			(command) => {
+				calls += 1
+				return `/fake/${command}`
+			},
+		)
+		await runtime.healthStatus()
+		const firstCalls = calls
+		await runtime.healthStatus()
+		if (process.platform === "linux") {
+			expect(firstCalls).toBeGreaterThan(0)
+			expect(calls).toBe(firstCalls)
+		} else {
+			expect(calls).toBe(0)
+		}
+	})
+})

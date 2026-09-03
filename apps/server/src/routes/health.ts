@@ -53,7 +53,7 @@ const app = new Hono()
 		// readiness check launch expensive native provider CLIs on low-memory hosts.
 		const [browser, desktop] = await Promise.allSettled([
 			browserRuntime.status(),
-			desktopRuntime.status(),
+			desktopRuntime.healthStatus(),
 		])
 		const providers = providerRegistry.cachedSnapshots()
 		const processes = listManagedProcesses()
