@@ -622,26 +622,34 @@ const idleTimeout = Number.isFinite(configuredIdleTimeout)
 
 console.log(`EIGENT server starting on http://${hostname}:${port}`)
 
-void ensureAgentClisInstalled()
-	.then(
-		() =>
-			new Promise<void>((resolve) =>
-				setTimeout(
-					resolve,
-					Math.max(0, Number(process.env.EIGENT_PROVIDER_WARMUP_DELAY_MS ?? "30000") || 30_000),
-				),
-			),
-	)
-	.then(() => providerRegistry.refreshSnapshots())
-	.then(() => console.log("Agent provider snapshot cache warmed"))
-	.catch((err) => {
-		console.warn(
-			"Automatic agent CLI/provider warmup failed:",
-			err instanceof Error ? err.message : err,
-		)
-	})
-
 const lowMemoryHost = process.env.EIGENT_BROWSER_LOW_MEMORY === "true"
+const providerPrewarmSetting = process.env.EIGENT_PROVIDER_PREWARM?.trim().toLowerCase()
+const shouldPrewarmProviders =
+	providerPrewarmSetting === "true" || (providerPrewarmSetting !== "false" && !lowMemoryHost)
+
+if (shouldPrewarmProviders) {
+	void ensureAgentClisInstalled()
+		.then(
+			() =>
+				new Promise<void>((resolve) =>
+					setTimeout(
+						resolve,
+						Math.max(0, Number(process.env.EIGENT_PROVIDER_WARMUP_DELAY_MS ?? "30000") || 30_000),
+					),
+				),
+		)
+		.then(() => providerRegistry.refreshSnapshots())
+		.then(() => console.log("Agent provider snapshot cache warmed"))
+		.catch((err) => {
+			console.warn(
+				"Automatic agent CLI/provider warmup failed:",
+				err instanceof Error ? err.message : err,
+			)
+		})
+} else {
+	console.log("Agent CLI/provider warmup deferred until first use")
+}
+
 const auxRuntimePrewarmSetting = process.env.EIGENT_AUX_RUNTIME_PREWARM?.trim().toLowerCase()
 const shouldPrewarmAuxRuntimes =
 	auxRuntimePrewarmSetting === "true" || (auxRuntimePrewarmSetting !== "false" && !lowMemoryHost)

@@ -71,6 +71,8 @@ EIGENT_DESKTOP_ENABLED=false
 # after this many milliseconds without proxied clients, but only when every
 # reported OpenCode session is idle. Set 0 to disable this lifecycle policy.
 EIGENT_OPENCODE_IDLE_TIMEOUT_MS=60000
+# Avoid competing CLI/model probes during OpenCode cold starts on small VMs.
+EIGENT_PROVIDER_PREWARM=false
 
 # Provider credentials belong here, never in VITE_* variables or the client bundle.
 # OPENAI_API_KEY=...

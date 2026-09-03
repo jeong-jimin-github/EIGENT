@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
+import { ensureAgentCliInstalled } from "./agent-cli-installer"
 
 // ============================================================
 // Types
@@ -159,15 +160,12 @@ async function startSingleServer(): Promise<OpenCodeServer> {
 		return existing
 	}
 
-	// Start the real executable directly. On Windows npm installs expose a
-	// .cmd shim that Bun/Node cannot safely execute without a shell.
+	// Resolve/install lazily so low-memory hosts can skip boot-time provider
+	// prewarm without breaking the first OpenCode request on a fresh machine.
+	// On Windows npm installs expose a .cmd shim, so prefer the real executable.
+	const executable = (await ensureAgentCliInstalled("opencode")) ?? resolveOpenCodeExecutable()
 	const proc = Bun.spawn({
-		cmd: [
-			resolveOpenCodeExecutable(),
-			"serve",
-			`--hostname=${OPENCODE_HOSTNAME}`,
-			`--port=${OPENCODE_PORT}`,
-		],
+		cmd: [executable, "serve", `--hostname=${OPENCODE_HOSTNAME}`, `--port=${OPENCODE_PORT}`],
 		cwd: homedir(), // arbitrary cwd — directory param overrides per-request
 		stdout: "pipe",
 		stderr: "pipe",
@@ -207,8 +205,11 @@ async function startSingleServer(): Promise<OpenCodeServer> {
 }
 
 export async function ensureSingleServer(): Promise<OpenCodeServer> {
-	if (singleServer) return singleServer.server
+	// startSingleServer() publishes singleServer before the child is ready so its
+	// exit handler can track the process. Concurrent callers must still await the
+	// shared startup promise; otherwise they proxy to port 4101 too early and get 502s.
 	if (singleServerStartPromise) return singleServerStartPromise
+	if (singleServer) return singleServer.server
 
 	const startPromise = startSingleServer()
 	singleServerStartPromise = startPromise
