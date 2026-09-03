@@ -15,7 +15,7 @@ import { Outlet } from "@tanstack/react-router"
 import { useAtom } from "jotai"
 import { XIcon } from "lucide-react"
 import { useCallback, useState } from "react"
-import { toast } from "sonner"
+import { Toaster, toast } from "sonner"
 import type { Automation } from "../../../preload/api"
 import { automationsBannerDismissedAtom } from "../../atoms/preferences"
 import { useAutomationData } from "../../hooks/use-automation-data"
@@ -90,6 +90,7 @@ export function AutomationsPage() {
 
 	return (
 		<div className="flex h-full flex-col">
+			<Toaster position="bottom-right" />
 			{!bannerDismissed && (
 				<div className="border-b border-border/50 px-4 py-3">
 					<Alert className="border-amber-400/40 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/5 dark:text-amber-200/90 [&>svg]:text-amber-600 dark:[&>svg]:text-amber-400">

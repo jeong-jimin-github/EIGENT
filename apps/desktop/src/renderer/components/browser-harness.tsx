@@ -1,7 +1,7 @@
 import { Button } from "@palot/ui/components/button"
 import { Globe2Icon, MonitorSmartphoneIcon, PanelRightCloseIcon } from "lucide-react"
 import { useAtom, useAtomValue } from "jotai"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react"
 import { activePreviewContextAtom, rightPanelWidthPercentAtom, sessionDiffFamily } from "../atoms/ui"
 import {
@@ -11,9 +11,17 @@ import {
 	webPreviewChangedFiles,
 	webPreviewRevision,
 } from "../services/device-preview"
-import { BrowserLiveView } from "./browser-live-view"
-import { DevicePreviewView } from "./device-preview-view"
-import { LoopbackDevicePreviewView } from "./loopback-device-preview-view"
+const BrowserLiveView = lazy(() =>
+	import("./browser-live-view").then((module) => ({ default: module.BrowserLiveView })),
+)
+const DevicePreviewView = lazy(() =>
+	import("./device-preview-view").then((module) => ({ default: module.DevicePreviewView })),
+)
+const LoopbackDevicePreviewView = lazy(() =>
+	import("./loopback-device-preview-view").then((module) => ({
+		default: module.LoopbackDevicePreviewView,
+	})),
+)
 
 interface BrowserStatus {
 	connected: boolean
@@ -210,17 +218,29 @@ export function BrowserHarness() {
 				<PanelRightCloseIcon aria-hidden="true" className="size-4" />
 				<span className="sr-only">Hide preview panel</span>
 			</Button>
-			{mode === "device" && loopbackUrl && previewContext ? (
-				<LoopbackDevicePreviewView url={loopbackUrl} root={previewContext.directory} revision={revision} />
-			) : mode === "device" && previewContext ? (
-				<DevicePreviewView
-					root={previewContext.directory}
-					changedFiles={changedFiles}
-					revision={revision}
-				/>
-			) : (
-				<BrowserLiveView />
-			)}
+			<Suspense
+				fallback={
+					<div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+						Loading preview…
+					</div>
+				}
+			>
+				{mode === "device" && loopbackUrl && previewContext ? (
+					<LoopbackDevicePreviewView
+						url={loopbackUrl}
+						root={previewContext.directory}
+						revision={revision}
+					/>
+				) : mode === "device" && previewContext ? (
+					<DevicePreviewView
+						root={previewContext.directory}
+						changedFiles={changedFiles}
+						revision={revision}
+					/>
+				) : (
+					<BrowserLiveView />
+				)}
+			</Suspense>
 		</aside>
 	)
 }

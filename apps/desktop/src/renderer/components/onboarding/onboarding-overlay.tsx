@@ -10,7 +10,7 @@
  */
 
 import { AnimatePresence, motion } from "motion/react"
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import type { MigrationPreview, MigrationProvider, MigrationResult } from "../../../preload/api"
 import { APP_BAR_HEIGHT } from "../app-bar"
 import { OnboardingProgress } from "./onboarding-progress"
@@ -62,6 +62,14 @@ const STEP_TRANSITION = {
 // ============================================================
 
 export function OnboardingOverlay({ onComplete }: OnboardingOverlayProps) {
+	useEffect(() => {
+		const splash = document.getElementById("splash")
+		if (!splash) return
+		splash.classList.add("hiding")
+		const timer = window.setTimeout(() => splash.remove(), 300)
+		return () => window.clearTimeout(timer)
+	}, [])
+
 	const [currentStep, setCurrentStep] = useState<OnboardingStep>("welcome")
 	const [skippedSteps, setSkippedSteps] = useState<string[]>([])
 	const [opencodeVersion, setOpencodeVersion] = useState<string | null>(null)

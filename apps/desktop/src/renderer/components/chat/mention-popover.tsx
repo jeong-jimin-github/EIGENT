@@ -8,7 +8,6 @@
 
 import { ScrollArea } from "@palot/ui/components/scroll-area"
 import { cn } from "@palot/ui/lib/utils"
-import fuzzysort from "fuzzysort"
 import { BrainIcon, FileIcon, FolderIcon, SearchIcon } from "lucide-react"
 import {
 	forwardRef,
@@ -51,6 +50,25 @@ interface MentionPopoverProps {
 	onClose: () => void
 }
 
+type Fuzzysort = typeof import("fuzzysort")
+
+let fuzzysortPromise: Promise<Fuzzysort> | null = null
+
+function loadFuzzysort(): Promise<Fuzzysort> {
+	if (!fuzzysortPromise) {
+		fuzzysortPromise = import("fuzzysort")
+			.then((module) => {
+				const interopModule = module as Fuzzysort & { default?: Fuzzysort }
+				return interopModule.default ?? module
+			})
+			.catch((error) => {
+				fuzzysortPromise = null
+				throw error
+			})
+	}
+	return fuzzysortPromise
+}
+
 // ============================================================
 // Helpers
 // ============================================================
@@ -81,6 +99,7 @@ export const MentionPopover = memo(
 	) {
 		const [activeIndex, setActiveIndex] = useState(0)
 		const listRef = useRef<HTMLDivElement>(null)
+		const [fuzzysort, setFuzzysort] = useState<Fuzzysort | null>(null)
 
 		// --- Data: agents ---
 		const agentOptions = useMemo<MentionOption[]>(
@@ -98,6 +117,21 @@ export const MentionPopover = memo(
 			[files],
 		)
 
+		useEffect(() => {
+			if (!open || !query || fuzzysort) return
+			let cancelled = false
+			void loadFuzzysort()
+				.then((loaded) => {
+					if (!cancelled) setFuzzysort(loaded)
+				})
+				.catch(() => {
+					// Keep the lightweight substring fallback if the optional fuzzy matcher fails.
+				})
+			return () => {
+				cancelled = true
+			}
+		}, [open, query, fuzzysort])
+
 		// --- Merge and filter ---
 		const allOptions = useMemo<MentionOption[]>(() => {
 			if (!query) {
@@ -105,14 +139,14 @@ export const MentionPopover = memo(
 				return [...agentOptions, ...fileOptions]
 			}
 
-			// Fuzzy filter agents
+			// Use a cheap substring match while the optional fuzzy matcher is loading.
 			const agentResults = fuzzysort
-				.go(query, agentOptions, { key: "display", threshold: 0.3 })
-				.map((r) => r.obj)
+				? fuzzysort.go(query, agentOptions, { key: "display", threshold: 0.3 }).map((r) => r.obj)
+				: agentOptions.filter((agent) => agent.display.toLowerCase().includes(query.toLowerCase()))
 
 			// Files come pre-filtered from the server
 			return [...agentResults, ...fileOptions]
-		}, [query, agentOptions, fileOptions])
+		}, [query, agentOptions, fileOptions, fuzzysort])
 
 		// Reset active index when options or query change
 		// biome-ignore lint/correctness/useExhaustiveDependencies: intentional — reset on options/query change

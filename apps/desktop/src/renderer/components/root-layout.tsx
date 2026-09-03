@@ -6,8 +6,7 @@
 import { TooltipProvider } from "@palot/ui/components/tooltip"
 import { Outlet, useNavigate, useParams } from "@tanstack/react-router"
 import { useAtomValue, useSetAtom } from "jotai"
-import { useCallback, useEffect, useMemo } from "react"
-import { Toaster } from "sonner"
+import { lazy, Suspense, useCallback, useEffect, useMemo } from "react"
 import { discoveryPhaseAtom } from "../atoms/discovery"
 import { onboardingStateAtom } from "../atoms/onboarding"
 import { useAgents, useCommandPaletteOpen, useSetCommandPaletteOpen } from "../hooks/use-agents"
@@ -21,11 +20,16 @@ import { useSystemAccentColor } from "../hooks/use-system-accent-color"
 import { useThemeEffect } from "../hooks/use-theme"
 import { useWaitingIndicator } from "../hooks/use-waiting-indicator"
 import { AppBarProvider } from "./app-bar-context"
-import { CommandPalette } from "./command-palette"
-import { OnboardingOverlay } from "./onboarding/onboarding-overlay"
 import { SidebarSlotProvider } from "./sidebar-slot-context"
 import { isStartupContentVisible } from "../services/startup-display"
 import { StartupOverlay } from "./startup-overlay"
+
+const CommandPalette = lazy(() =>
+	import("./command-palette").then((module) => ({ default: module.CommandPalette })),
+)
+const OnboardingOverlay = lazy(() =>
+	import("./onboarding/onboarding-overlay").then((module) => ({ default: module.OnboardingOverlay })),
+)
 
 export function RootLayout() {
 	const isMockMode = useMockMode()
@@ -157,23 +161,15 @@ export function RootLayout() {
 		[setOnboardingState],
 	)
 
-	// ========== Splash cleanup during onboarding ==========
-	// The HTML-level #splash (index.html) is normally removed by StartupOverlay's
-	// mount effect. When onboarding is shown we return early and StartupOverlay
-	// never mounts, so clean up the HTML splash here instead.
-	useEffect(() => {
-		if (!showOnboarding) return
-		const splash = document.getElementById("splash")
-		if (splash) {
-			splash.classList.add("hiding")
-			setTimeout(() => splash.remove(), 300)
-		}
-	}, [showOnboarding])
 
 	// ========== Layout ==========
 
 	if (showOnboarding) {
-		return <OnboardingOverlay onComplete={handleOnboardingComplete} />
+		return (
+			<Suspense fallback={null}>
+				<OnboardingOverlay onComplete={handleOnboardingComplete} />
+			</Suspense>
+		)
 	}
 
 	// Hide app content while the startup overlay is covering the screen.
@@ -190,13 +186,16 @@ export function RootLayout() {
 						className={`transition-opacity duration-300 ${contentReady ? "opacity-100" : "opacity-0"}`}
 					>
 						<Outlet />
-						<CommandPalette
-							open={commandPaletteOpen}
-							onOpenChange={setCommandPaletteOpen}
-							agents={agents}
-							onForkSession={activeAgent ? handleForkSession : undefined}
-						/>
-						<Toaster position="bottom-right" />
+						{commandPaletteOpen ? (
+							<Suspense fallback={null}>
+								<CommandPalette
+									open
+									onOpenChange={setCommandPaletteOpen}
+									agents={agents}
+									onForkSession={activeAgent ? handleForkSession : undefined}
+								/>
+							</Suspense>
+						) : null}
 					</div>
 					<StartupOverlay />
 				</SidebarSlotProvider>
