@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import type { BrowserRuntimeStatus } from "./browser-runtime"
 import type { DesktopRuntimeStatus } from "./desktop-runtime"
-import { browserRuntimeReadyForRequests, desktopRuntimeReadyForRequests } from "./runtime-readiness"
+import {
+	browserRuntimeReadyForRequests,
+	desktopRuntimeReadyForRequests,
+	readinessSummary,
+} from "./runtime-readiness"
 
 function browser(overrides: Partial<BrowserRuntimeStatus> = {}): BrowserRuntimeStatus {
 	return {
@@ -67,5 +71,21 @@ describe("runtime readiness", () => {
 		expect(
 			desktopRuntimeReadyForRequests(desktop({ enabled: false, state: "unsupported" })),
 		).toBeTrue()
+	})
+})
+
+describe("readiness summary", () => {
+	test("returns 200 only when every component is ready", () => {
+		expect(readinessSummary({ browser: { ok: true }, desktop: { ok: true } })).toEqual({
+			status: "ok",
+			httpStatus: 200,
+		})
+	})
+
+	test("returns degraded 503 when any component is not ready", () => {
+		expect(readinessSummary({ browser: { ok: false }, desktop: { ok: true } })).toEqual({
+			status: "degraded",
+			httpStatus: 503,
+		})
 	})
 })

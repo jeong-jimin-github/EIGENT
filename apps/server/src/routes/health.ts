@@ -6,6 +6,7 @@ import { providerRegistry } from "../services/provider-registry"
 import {
 	browserRuntimeReadyForRequests,
 	desktopRuntimeReadyForRequests,
+	readinessSummary,
 } from "../services/runtime-readiness"
 
 function now() {
@@ -57,33 +58,32 @@ const app = new Hono()
 		])
 		const providers = providerRegistry.cachedSnapshots()
 		const processes = listManagedProcesses()
-		return c.json(
-			{
-				...now(),
-				components: {
-					browser:
-						browser.status === "fulfilled"
-							? { ok: browserRuntimeReadyForRequests(browser.value), state: browser.value.state }
-							: { ok: false, state: "error" },
-					desktop:
-						desktop.status === "fulfilled"
-							? {
-									ok: desktopRuntimeReadyForRequests(desktop.value),
-									state: desktop.value.state,
-								}
-							: { ok: false, state: "error" },
-					agents: {
-						ok: providers !== null,
-						providers: providers?.length ?? 0,
-					},
-					processes: {
-						ok: true,
-						total: processes.length,
-						running: processes.filter((process) => process.state === "running").length,
-					},
-				},
+		const components = {
+			browser:
+				browser.status === "fulfilled"
+					? { ok: browserRuntimeReadyForRequests(browser.value), state: browser.value.state }
+					: { ok: false, state: "error" },
+			desktop:
+				desktop.status === "fulfilled"
+					? {
+							ok: desktopRuntimeReadyForRequests(desktop.value),
+							state: desktop.value.state,
+						}
+					: { ok: false, state: "error" },
+			agents: {
+				ok: providers !== null,
+				providers: providers?.length ?? 0,
 			},
-			200,
+			processes: {
+				ok: true,
+				total: processes.length,
+				running: processes.filter((process) => process.state === "running").length,
+			},
+		}
+		const readiness = readinessSummary(components)
+		return c.json(
+			{ status: readiness.status, timestamp: Date.now(), components },
+			readiness.httpStatus,
 		)
 	})
 
