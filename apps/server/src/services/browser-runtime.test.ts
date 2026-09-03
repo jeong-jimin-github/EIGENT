@@ -122,6 +122,38 @@ describe("browser runtime", () => {
 		}
 	})
 
+	test("cleans up only processes launched by a failed startup attempt", async () => {
+		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-startup-cleanup-"))
+		const terminated: number[] = []
+		try {
+			const runtime = new BrowserRuntime(
+				{
+					profileDir: path.join(root, "profile"),
+					downloadDir: path.join(root, "downloads"),
+					uploadDir: path.join(root, "uploads"),
+					debugPort: 19523,
+					workerPort: 19524,
+					headless: true,
+					startupTimeoutMs: 30,
+				},
+				() => process.execPath,
+				(pid) => terminated.push(pid),
+			)
+
+			await expect(runtime.ensureReady()).rejects.toThrow("Browser CDP")
+			expect(terminated).toHaveLength(1)
+			expect(terminated[0]).toBeGreaterThan(0)
+
+			const status = await runtime.status()
+			expect(status.state).toBe("error")
+			expect(status.connected).toBeFalse()
+			expect(status.spawnedPid).toBeUndefined()
+			expect(status.workerPid).toBeUndefined()
+		} finally {
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
+
 	test("sanitizes download filenames into the configured directory", () => {
 		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-unit-"))
 		try {

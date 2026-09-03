@@ -160,6 +160,21 @@ export function discoverBrowserExecutable(explicit?: string): string | undefined
 }
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+function terminateDetachedProcess(pid: number): void {
+	try {
+		if (process.platform === "win32") {
+			spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+				stdio: "ignore",
+				windowsHide: true,
+			})
+			return
+		}
+		process.kill(-pid, "SIGTERM")
+	} catch {
+		// The child/process group may already have exited.
+	}
+}
+
 export class BrowserRuntime {
 	private state: BrowserRuntimeState = "idle"
 	private ensurePromise?: Promise<void>
@@ -174,6 +189,7 @@ export class BrowserRuntime {
 		private readonly resolveExecutable: (
 			explicit?: string,
 		) => string | undefined = discoverBrowserExecutable,
+		private readonly terminateProcess: (pid: number) => void = terminateDetachedProcess,
 	) {
 		for (const dir of [config.profileDir, config.downloadDir, config.uploadDir]) {
 			if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -293,6 +309,20 @@ export class BrowserRuntime {
 		this.workerPid = child.pid
 	}
 
+	private cleanupFailedLaunch(
+		launchedBrowserPid: number | undefined,
+		launchedWorkerPid: number | undefined,
+	): void {
+		if (launchedWorkerPid !== undefined) {
+			this.terminateProcess(launchedWorkerPid)
+			if (this.workerPid === launchedWorkerPid) this.workerPid = undefined
+		}
+		if (launchedBrowserPid !== undefined) {
+			this.terminateProcess(launchedBrowserPid)
+			if (this.spawnedPid === launchedBrowserPid) this.spawnedPid = undefined
+		}
+	}
+
 	private async waitUntil(check: () => Promise<boolean>, label: string): Promise<void> {
 		const deadline = Date.now() + this.config.startupTimeoutMs
 		while (Date.now() < deadline) {
@@ -311,6 +341,8 @@ export class BrowserRuntime {
 		this.ensurePromise = (async () => {
 			this.state = "starting"
 			this.lastError = undefined
+			let launchedBrowserPid: number | undefined
+			let launchedWorkerPid: number | undefined
 			try {
 				if (!(await this.cdpAvailable())) {
 					// Re-probe on an actual launch attempt so a browser installed after
@@ -321,10 +353,12 @@ export class BrowserRuntime {
 							"No Chrome/Chromium/Edge executable found. Set EIGENT_BROWSER_EXECUTABLE.",
 						)
 					this.launchBrowser(executable)
+					launchedBrowserPid = this.spawnedPid
 					await this.waitUntil(() => this.cdpAvailable(), `Browser CDP at ${this.cdpUrl()}`)
 				}
 				if (!(await this.workerAvailable())) {
 					this.launchWorker()
+					launchedWorkerPid = this.workerPid
 					await this.waitUntil(
 						() => this.workerAvailable(),
 						`Playwright worker at ${this.workerUrl()}`,
@@ -332,6 +366,7 @@ export class BrowserRuntime {
 				}
 				this.state = "ready"
 			} catch (error) {
+				this.cleanupFailedLaunch(launchedBrowserPid, launchedWorkerPid)
 				this.state = "error"
 				this.lastError = error instanceof Error ? error.message : String(error)
 				throw error
