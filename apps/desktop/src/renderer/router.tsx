@@ -3,77 +3,71 @@ import {
 	createRootRoute,
 	createRoute,
 	createRouter,
+	lazyRouteComponent,
 	redirect,
 } from "@tanstack/react-router"
-import { lazy, Suspense } from "react"
-import { AutomationDetail } from "./components/automations/automation-detail"
-import { AutomationsPage } from "./components/automations/automations-page"
-import { InboxEmptyState } from "./components/automations/inbox-empty-state"
 import { ErrorPage } from "./components/error-page"
 import { NewChat } from "./components/new-chat"
 import { NotFoundPage } from "./components/not-found-page"
 import { RootLayout } from "./components/root-layout"
-import { AboutSettings } from "./components/settings/about-settings"
-import { GeneralSettings } from "./components/settings/general-settings"
-import { NotificationSettings } from "./components/settings/notification-settings"
-import { ProviderSettings } from "./components/settings/provider-settings"
-import { ServerSettingsRoute } from "./components/settings/server-settings-route"
-import { SettingsPage } from "./components/settings/settings-page"
-import { SetupSettings } from "./components/settings/setup-settings"
-import { WorktreeSettings } from "./components/settings/worktree-settings"
 import { SidebarLayout } from "./components/sidebar-layout"
 
-const LazySessionRoute = lazy(() =>
-	import("./components/session-route").then(({ SessionRoute }) => ({ default: SessionRoute })),
+const SessionRoute = lazyRouteComponent(
+	() => import("./components/session-route"),
+	"SessionRoute",
 )
-
-const LazyAutomationRunDetail = lazy(() =>
-	import("./components/automations/automation-run-detail").then(({ AutomationRunDetail }) => ({
-		default: AutomationRunDetail,
-	})),
+const ProjectTools = lazyRouteComponent(
+	() => import("./components/project-tools"),
+	"ProjectTools",
 )
-
-const LazyProjectTools = lazy(() =>
-	import("./components/project-tools").then(({ ProjectTools }) => ({ default: ProjectTools })),
+const AutomationsPage = lazyRouteComponent(
+	() => import("./components/automations/automations-page"),
+	"AutomationsPage",
 )
-
-function SessionRouteComponent() {
-	return (
-		<Suspense fallback={<RouteLoading label="Loading session…" />}>
-			<LazySessionRoute />
-		</Suspense>
-	)
-}
-
-function AutomationRunDetailRoute() {
-	return (
-		<Suspense fallback={<RouteLoading label="Loading automation run…" />}>
-			<LazyAutomationRunDetail />
-		</Suspense>
-	)
-}
-
-function RouteLoading({ label }: { label: string }) {
-	return (
-		<div className="flex h-full min-h-0 items-center justify-center text-sm text-muted-foreground">
-			{label}
-		</div>
-	)
-}
-
-function ProjectToolsRoute() {
-	return (
-		<Suspense
-			fallback={
-				<div className="flex h-full min-h-0 items-center justify-center text-sm text-muted-foreground">
-					Loading project tools…
-				</div>
-			}
-		>
-			<LazyProjectTools />
-		</Suspense>
-	)
-}
+const InboxEmptyState = lazyRouteComponent(
+	() => import("./components/automations/inbox-empty-state"),
+	"InboxEmptyState",
+)
+const AutomationDetail = lazyRouteComponent(
+	() => import("./components/automations/automation-detail"),
+	"AutomationDetail",
+)
+const AutomationRunDetail = lazyRouteComponent(
+	() => import("./components/automations/automation-run-detail"),
+	"AutomationRunDetail",
+)
+const SettingsPage = lazyRouteComponent(
+	() => import("./components/settings/settings-page"),
+	"SettingsPage",
+)
+const GeneralSettings = lazyRouteComponent(
+	() => import("./components/settings/general-settings"),
+	"GeneralSettings",
+)
+const ServerSettingsRoute = lazyRouteComponent(
+	() => import("./components/settings/server-settings-route"),
+	"ServerSettingsRoute",
+)
+const NotificationSettings = lazyRouteComponent(
+	() => import("./components/settings/notification-settings"),
+	"NotificationSettings",
+)
+const ProviderSettings = lazyRouteComponent(
+	() => import("./components/settings/provider-settings"),
+	"ProviderSettings",
+)
+const WorktreeSettings = lazyRouteComponent(
+	() => import("./components/settings/worktree-settings"),
+	"WorktreeSettings",
+)
+const SetupSettings = lazyRouteComponent(
+	() => import("./components/settings/setup-settings"),
+	"SetupSettings",
+)
+const AboutSettings = lazyRouteComponent(
+	() => import("./components/settings/about-settings"),
+	"AboutSettings",
+)
 
 // ============================================================
 // Route tree
@@ -111,13 +105,13 @@ const projectIndexRoute = createRoute({
 const sessionRoute = createRoute({
 	getParentRoute: () => projectRoute,
 	path: "session/$sessionId",
-	component: SessionRouteComponent,
+	component: SessionRoute,
 })
 
 const projectToolsRoute = createRoute({
 	getParentRoute: () => projectRoute,
 	path: "tools",
-	component: ProjectToolsRoute,
+	component: ProjectTools,
 })
 
 const settingsRoute = createRoute({
@@ -202,7 +196,7 @@ const automationDetailIndexRoute = createRoute({
 const automationRunRoute = createRoute({
 	getParentRoute: () => automationDetailRoute,
 	path: "runs/$runId",
-	component: AutomationRunDetailRoute,
+	component: AutomationRunDetail,
 })
 
 const routeTree = rootRoute.addChildren([
