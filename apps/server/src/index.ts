@@ -242,6 +242,7 @@ app.get(
 	upgradeWebSocket(() => {
 		let vnc: net.Socket | null = null
 		let stopped = false
+		let releaseActivity: (() => void) | null = null
 		const pending: Uint8Array[] = []
 
 		const toBytes = (data: string | ArrayBuffer | Uint8Array): Uint8Array => {
@@ -252,6 +253,7 @@ app.get(
 
 		return {
 			onOpen(_event, ws) {
+				releaseActivity = desktopRuntime.acquireActivityLease()
 				void desktopRuntime
 					.ensureReady()
 					.then(() => {
@@ -267,7 +269,11 @@ app.get(
 						vnc.on("error", () => ws.close())
 						vnc.on("close", () => ws.close())
 					})
-					.catch(() => ws.close())
+					.catch(() => {
+						releaseActivity?.()
+						releaseActivity = null
+						ws.close()
+					})
 			},
 			onMessage(event) {
 				const payload = toBytes(event.data as string | ArrayBuffer | Uint8Array)
@@ -279,6 +285,8 @@ app.get(
 				pending.length = 0
 				vnc?.destroy()
 				vnc = null
+				releaseActivity?.()
+				releaseActivity = null
 			},
 		}
 	}),

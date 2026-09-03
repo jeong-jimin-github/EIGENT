@@ -75,6 +75,9 @@ EIGENT_OPENCODE_IDLE_TIMEOUT_MS=60000
 # Browser Live snapshots and browser actions hold an activity lease, so active work
 # is never interrupted. Set 0 to keep the browser resident after first use.
 EIGENT_BROWSER_IDLE_TIMEOUT_MS=60000
+# Managed Xvfb/openbox/x11vnc are also reclaimed after inactivity on low-memory hosts.
+# Active VNC viewers and Computer actions hold an activity lease. Set 0 to disable.
+EIGENT_DESKTOP_IDLE_TIMEOUT_MS=60000
 # Avoid competing CLI/model probes during OpenCode cold starts on small VMs.
 EIGENT_PROVIDER_PREWARM=false
 

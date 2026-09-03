@@ -18,6 +18,7 @@ export interface DesktopRuntimeConfig {
 	vncPort: number
 	sharedDir: string
 	startupTimeoutMs: number
+	idleTimeoutMs: number
 }
 
 export interface DesktopRuntimeStatus extends DesktopRuntimeConfig {
@@ -66,6 +67,15 @@ function envNumber(name: string, fallback: number): number {
 	return Number.isFinite(value) && value > 0 ? value : fallback
 }
 
+export function desktopIdleTimeoutMs(): number {
+	const configured = process.env.EIGENT_DESKTOP_IDLE_TIMEOUT_MS?.trim()
+	if (configured !== undefined && configured !== "") {
+		const value = Number(configured)
+		return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : 0
+	}
+	return process.env.EIGENT_BROWSER_LOW_MEMORY === "true" ? 60_000 : 0
+}
+
 function defaultDataDir(): string {
 	if (process.env.EIGENT_DATA_DIR) return path.resolve(process.env.EIGENT_DATA_DIR)
 	const root =
@@ -89,6 +99,7 @@ export function loadDesktopRuntimeConfig(): DesktopRuntimeConfig {
 			process.env.EIGENT_DESKTOP_SHARED_DIR ?? path.join(defaultDataDir(), "desktop", "shared"),
 		),
 		startupTimeoutMs: envNumber("EIGENT_DESKTOP_STARTUP_TIMEOUT_MS", 15_000),
+		idleTimeoutMs: desktopIdleTimeoutMs(),
 	}
 }
 
@@ -127,8 +138,15 @@ export class DesktopRuntime {
 	private controlOwner: DesktopControlOwner = "agent"
 	private controlEpoch = 0
 	private readonly children = new Map<"xvfb" | "openbox" | "x11vnc", ChildProcess>()
+	private readonly commandCache = new Map<string, string | undefined>()
+	private idleTimer?: ReturnType<typeof setTimeout>
+	private lastActivityAt = 0
+	private activeOperations = 0
 
-	constructor(private readonly config = loadDesktopRuntimeConfig()) {
+	constructor(
+		private readonly config = loadDesktopRuntimeConfig(),
+		private readonly resolveCommand: (command: string) => string | undefined = commandPath,
+	) {
 		this.pidDir = path.join(config.sharedDir, ".runtime")
 		if (!existsSync(config.sharedDir)) mkdirSync(config.sharedDir, { recursive: true })
 		if (!existsSync(this.pidDir)) mkdirSync(this.pidDir, { recursive: true })
@@ -167,9 +185,16 @@ export class DesktopRuntime {
 		return env
 	}
 
-	private xAvailable(): boolean {
+	private commandExecutable(command: string, refresh = false): string | undefined {
+		if (refresh || !this.commandCache.has(command)) {
+			this.commandCache.set(command, this.resolveCommand(command))
+		}
+		return this.commandCache.get(command)
+	}
+
+	private xAvailable(refreshCommand = false): boolean {
 		if (process.platform !== "linux") return false
-		const xdpyinfo = commandPath("xdpyinfo")
+		const xdpyinfo = this.commandExecutable("xdpyinfo", refreshCommand)
 		if (!xdpyinfo) return false
 		const result = spawnSync(xdpyinfo, ["-display", this.config.display], {
 			stdio: "ignore",
@@ -178,9 +203,94 @@ export class DesktopRuntime {
 		return result.status === 0
 	}
 
-	private missingCommands(): string[] {
+	private missingCommands(refresh = false): string[] {
 		if (process.platform !== "linux") return [...REQUIRED_COMMANDS]
-		return REQUIRED_COMMANDS.filter((command) => !commandPath(command))
+		return REQUIRED_COMMANDS.filter((command) => !this.commandExecutable(command, refresh))
+	}
+
+	private clearIdleTimer(): void {
+		if (this.idleTimer) clearTimeout(this.idleTimer)
+		this.idleTimer = undefined
+	}
+
+	private hasManagedChildren(): boolean {
+		if (!this.config.managed) return false
+		if (this.children.size > 0) return true
+		return (["xvfb", "openbox", "x11vnc"] as const).some(
+			(kind) => this.rememberedPid(kind) !== undefined,
+		)
+	}
+
+	private scheduleIdleShutdown(): void {
+		this.clearIdleTimer()
+		if (this.config.idleTimeoutMs <= 0 || !this.hasManagedChildren()) return
+		const remaining = Math.max(1, this.config.idleTimeoutMs - (Date.now() - this.lastActivityAt))
+		this.idleTimer = setTimeout(() => {
+			this.idleTimer = undefined
+			if (this.activeOperations > 0 || this.ensurePromise) {
+				this.lastActivityAt = Date.now()
+				this.scheduleIdleShutdown()
+				return
+			}
+			if (Date.now() - this.lastActivityAt < this.config.idleTimeoutMs) {
+				this.scheduleIdleShutdown()
+				return
+			}
+			this.stopManagedRuntime()
+		}, remaining)
+	}
+
+	private touchActivity(): void {
+		this.lastActivityAt = Date.now()
+		if (this.activeOperations === 0 && !this.ensurePromise) this.scheduleIdleShutdown()
+	}
+
+	acquireActivityLease(): () => void {
+		this.activeOperations += 1
+		this.clearIdleTimer()
+		let released = false
+		return () => {
+			if (released) return
+			released = true
+			this.activeOperations = Math.max(0, this.activeOperations - 1)
+			this.touchActivity()
+		}
+	}
+
+	private async withActivity<T>(operation: () => Promise<T>): Promise<T> {
+		const release = this.acquireActivityLease()
+		try {
+			return await operation()
+		} finally {
+			release()
+		}
+	}
+
+	private stopManagedRuntime(): void {
+		this.clearIdleTimer()
+		if (!this.config.managed) return
+		for (const kind of ["x11vnc", "openbox", "xvfb"] as const) {
+			const child = this.children.get(kind)
+			const remembered = this.rememberedPid(kind)
+			if (child) {
+				try {
+					child.kill("SIGTERM")
+				} catch {
+					/* already gone */
+				}
+			}
+			if (remembered && remembered !== child?.pid) {
+				try {
+					process.kill(remembered, "SIGTERM")
+				} catch {
+					/* already gone */
+				}
+			}
+			this.forgetPid(kind)
+		}
+		this.children.clear()
+		this.state = "idle"
+		this.lastError = undefined
 	}
 
 	private pidFile(kind: "xvfb" | "openbox" | "x11vnc"): string {
@@ -224,7 +334,7 @@ export class DesktopRuntime {
 		command: string,
 		args: string[],
 	): void {
-		const executable = commandPath(command)
+		const executable = this.commandExecutable(command)
 		if (!executable) throw new Error(`${command} is required for the managed desktop runtime`)
 		const child = spawn(executable, args, {
 			detached: true,
@@ -234,6 +344,11 @@ export class DesktopRuntime {
 		child.unref()
 		this.children.set(kind, child)
 		if (child.pid) this.rememberPid(kind, child.pid)
+		child.once("exit", () => {
+			if (this.children.get(kind) === child) this.children.delete(kind)
+			const remembered = this.rememberedPid(kind)
+			if (remembered === undefined || remembered === child.pid) this.forgetPid(kind)
+		})
 	}
 
 	private async waitUntil(check: () => boolean | Promise<boolean>, label: string): Promise<void> {
@@ -251,6 +366,7 @@ export class DesktopRuntime {
 			throw new Error("Managed desktop runtime is supported on Linux only")
 		if (this.xAvailable() && (await tcpAvailable(this.config.vncHost, this.config.vncPort))) {
 			this.state = "ready"
+			this.touchActivity()
 			return
 		}
 		if (this.ensurePromise) return this.ensurePromise
@@ -260,7 +376,7 @@ export class DesktopRuntime {
 			this.lastError = undefined
 			try {
 				if (!this.config.managed) {
-					if (!this.xAvailable())
+					if (!this.xAvailable(true))
 						throw new Error(`No X display is available at ${this.config.display}`)
 					if (!(await tcpAvailable(this.config.vncHost, this.config.vncPort))) {
 						throw new Error(
@@ -268,15 +384,16 @@ export class DesktopRuntime {
 						)
 					}
 					this.state = "ready"
+					this.touchActivity()
 					return
 				}
 
-				const missing = this.missingCommands()
+				const missing = this.missingCommands(true)
 				if (missing.length > 0) {
 					throw new Error(`Missing desktop dependencies: ${missing.join(", ")}`)
 				}
 
-				if (!this.xAvailable()) {
+				if (!this.xAvailable(true)) {
 					this.launchDetached("xvfb", "Xvfb", [
 						this.config.display,
 						"-screen",
@@ -308,39 +425,22 @@ export class DesktopRuntime {
 					)
 				}
 				this.state = "ready"
+				this.touchActivity()
 			} catch (error) {
+				if (this.config.managed) this.stopManagedRuntime()
 				this.state = "error"
 				this.lastError = error instanceof Error ? error.message : String(error)
 				throw error
 			} finally {
 				this.ensurePromise = undefined
+				if (this.state === "ready" && this.activeOperations === 0) this.touchActivity()
 			}
 		})()
 		return this.ensurePromise
 	}
 
 	async restart(): Promise<void> {
-		for (const kind of ["x11vnc", "openbox", "xvfb"] as const) {
-			const child = this.children.get(kind)
-			const remembered = this.rememberedPid(kind)
-			if (child) {
-				try {
-					child.kill("SIGTERM")
-				} catch {
-					/* process may already be gone */
-				}
-			}
-			if (remembered && remembered !== child?.pid) {
-				try {
-					process.kill(remembered, "SIGTERM")
-				} catch {
-					/* process may already be gone */
-				}
-			}
-			this.forgetPid(kind)
-		}
-		this.children.clear()
-		this.state = "idle"
+		this.stopManagedRuntime()
 		await delay(500)
 		await this.ensureReady()
 	}
@@ -380,7 +480,7 @@ export class DesktopRuntime {
 	}
 
 	private runXdotool(args: string[]): string {
-		const executable = commandPath("xdotool")
+		const executable = this.commandExecutable("xdotool")
 		if (!executable) throw new Error("xdotool is required for Computer actions")
 		const result = spawnSync(executable, args, {
 			encoding: "utf8",
@@ -392,6 +492,10 @@ export class DesktopRuntime {
 	}
 
 	async action(input: ComputerAction): Promise<unknown> {
+		return this.withActivity(() => this.runAction(input))
+	}
+
+	private async runAction(input: ComputerAction): Promise<unknown> {
 		await this.ensureReady()
 		if (input.action === "screenshot") return this.screenshot()
 		if (input.action === "clipboard_get") return { text: this.readClipboard() }
@@ -459,7 +563,7 @@ export class DesktopRuntime {
 				this.runXdotool(["windowactivate", "--sync", input.id])
 				return { ok: true }
 			case "launch": {
-				const executable = commandPath(input.command)
+				const executable = this.commandExecutable(input.command, true)
 				if (!executable) throw new Error(`GUI executable not found: ${input.command}`)
 				const child = spawn(executable, input.args ?? [], {
 					detached: true,
@@ -476,7 +580,7 @@ export class DesktopRuntime {
 	}
 
 	private screenshot(): { base64: string; mimeType: "image/png" } {
-		const executable = commandPath("scrot")
+		const executable = this.commandExecutable("scrot")
 		if (!executable) throw new Error("scrot is required for desktop screenshots")
 		const filename = path.join(os.tmpdir(), `eigent-desktop-${process.pid}-${Date.now()}.png`)
 		try {
@@ -492,7 +596,7 @@ export class DesktopRuntime {
 	}
 
 	private readClipboard(): string {
-		const executable = commandPath("xclip")
+		const executable = this.commandExecutable("xclip")
 		if (!executable) throw new Error("xclip is required for clipboard access")
 		const result = spawnSync(executable, ["-selection", "clipboard", "-o"], {
 			encoding: "utf8",
@@ -503,7 +607,7 @@ export class DesktopRuntime {
 	}
 
 	private writeClipboard(text: string): void {
-		const executable = commandPath("xclip")
+		const executable = this.commandExecutable("xclip")
 		if (!executable) throw new Error("xclip is required for clipboard access")
 		const result = spawnSync(executable, ["-selection", "clipboard", "-i"], {
 			input: text,

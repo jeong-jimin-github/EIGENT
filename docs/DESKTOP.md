@@ -14,6 +14,8 @@ The managed runtime requires `Xvfb`, `openbox`, `x11vnc`, `xdotool`, `scrot`, `x
 
 The default display is `:99` at `1440x900x24`, with x11vnc listening only on `127.0.0.1:5900`. These values can be overridden with the `EIGENT_DESKTOP_*` variables documented in `.env.example`.
 
+On memory-constrained hosts (`EIGENT_BROWSER_LOW_MEMORY=true`), a managed desktop is stopped after 60 seconds of inactivity by default. `EIGENT_DESKTOP_IDLE_TIMEOUT_MS` overrides that timeout; set it to `0` to keep Xvfb/openbox/x11vnc resident after first use. Active VNC viewers and Computer actions prevent idle shutdown.
+
 ## Web Take Control
 
 Open a project and select **Project Tools → Desktop**. The panel shows the same desktop used by the agent.
