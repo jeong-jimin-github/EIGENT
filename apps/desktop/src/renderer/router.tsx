@@ -5,6 +5,7 @@ import {
 	createRouter,
 	redirect,
 } from "@tanstack/react-router"
+import { lazy, Suspense } from "react"
 import { AutomationDetail } from "./components/automations/automation-detail"
 import { AutomationRunDetail } from "./components/automations/automation-run-detail"
 import { AutomationsPage } from "./components/automations/automations-page"
@@ -12,7 +13,6 @@ import { InboxEmptyState } from "./components/automations/inbox-empty-state"
 import { ErrorPage } from "./components/error-page"
 import { NewChat } from "./components/new-chat"
 import { NotFoundPage } from "./components/not-found-page"
-import { ProjectTools } from "./components/project-tools"
 import { RootLayout } from "./components/root-layout"
 import { SessionRoute } from "./components/session-route"
 import { AboutSettings } from "./components/settings/about-settings"
@@ -24,6 +24,24 @@ import { SettingsPage } from "./components/settings/settings-page"
 import { SetupSettings } from "./components/settings/setup-settings"
 import { WorktreeSettings } from "./components/settings/worktree-settings"
 import { SidebarLayout } from "./components/sidebar-layout"
+
+const LazyProjectTools = lazy(() =>
+	import("./components/project-tools").then(({ ProjectTools }) => ({ default: ProjectTools })),
+)
+
+function ProjectToolsRoute() {
+	return (
+		<Suspense
+			fallback={
+				<div className="flex h-full min-h-0 items-center justify-center text-sm text-muted-foreground">
+					Loading project tools…
+				</div>
+			}
+		>
+			<LazyProjectTools />
+		</Suspense>
+	)
+}
 
 // ============================================================
 // Route tree
@@ -67,7 +85,7 @@ const sessionRoute = createRoute({
 const projectToolsRoute = createRoute({
 	getParentRoute: () => projectRoute,
 	path: "tools",
-	component: ProjectTools,
+	component: ProjectToolsRoute,
 })
 
 const settingsRoute = createRoute({
