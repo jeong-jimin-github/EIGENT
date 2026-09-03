@@ -12,7 +12,7 @@ import { useCallback } from "react"
 import { serverConnectedAtom } from "../atoms/connection"
 import { isMockModeAtom } from "../atoms/mock-mode"
 import { MOCK_AGENTS, MOCK_CONFIG, MOCK_PROVIDERS } from "../lib/mock-opencode-data"
-import { fetchModelState, updateModelRecent } from "../services/backend"
+import { fetchGitBranches, fetchModelState, updateModelRecent } from "../services/backend"
 import { getBaseClient, getProjectClient } from "../services/connection-manager"
 
 // ============================================================
@@ -286,11 +286,10 @@ export function useVcs(directory: string | null): {
 	const { data, isLoading, error } = useQuery({
 		queryKey: queryKeys.vcs(directory ?? ""),
 		queryFn: async (): Promise<VcsData> => {
-			const client = getProjectClient(directory!)
-			if (!client) throw new Error("No client for directory")
-			const result = await client.vcs.get()
-			const raw = result.data as { branch: string }
-			return { branch: raw.branch ?? "" }
+			// Branch display is lightweight server state and should not wake the ~300 MB
+			// OpenCode runtime every poll on low-memory hosts.
+			const branches = await fetchGitBranches(directory!)
+			return { branch: branches.current ?? "" }
 		},
 		enabled: !!directory && connected && !isMockMode,
 		staleTime: 30_000,

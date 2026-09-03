@@ -19,6 +19,7 @@ import { ensureAgentCliInstalled, ensureAgentClisInstalled } from "./services/ag
 import { browserRuntime } from "./services/browser-runtime"
 import { desktopRuntime } from "./services/desktop-runtime"
 import { proxyLoopbackPreviewRequest } from "./services/loopback-preview"
+import { createOpenCodeEventBridge } from "./services/opencode-event-bridge"
 import { scopeOpenCodeSessionRequest } from "./services/opencode-proxy-scope"
 import { previewRequestPath } from "./services/preview-route-path"
 import { providerRegistry } from "./services/provider-registry"
@@ -28,7 +29,7 @@ import {
 	isAllowedOrigin,
 	maxRequestBytes,
 } from "./services/security-policy"
-import { ensureSingleServer, retainServerActivity } from "./services/server-manager"
+import { ensureSingleServer, getServerUrl, retainServerActivity } from "./services/server-manager"
 import { createTerminalSession, type TerminalSession } from "./services/terminal-session"
 import { resolveWorkspaceScope } from "./services/workspace-policy"
 import {
@@ -427,9 +428,29 @@ function releaseOnStreamClose(
 	})
 }
 
+// The global SSE subscription is intentionally not an OpenCode activity lease.
+// Keeping a browser tab open should not pin the ~300 MB managed child forever.
+// The downstream stream survives idle shutdowns and reattaches after a real API
+// request starts OpenCode again.
+app.get(`${OPENCODE_PROXY_PREFIX}/global/event`, () => {
+	const stream = createOpenCodeEventBridge({
+		ensureServerUrl: async () => (await ensureSingleServer()).url,
+		getServerUrl,
+	})
+	return new Response(stream, {
+		headers: {
+			"Cache-Control": "no-cache, no-transform",
+			"Content-Encoding": "identity",
+			"Content-Type": "text/event-stream; charset=utf-8",
+			"X-Accel-Buffering": "no",
+			"X-Content-Type-Options": "nosniff",
+		},
+	})
+})
+
 // Browser deployments need a same-origin path to the loopback-only OpenCode
 // server. This proxy keeps port 4101 private while supporting normal JSON API
-// calls and streaming SSE responses used by the OpenCode SDK.
+// calls and non-global streaming responses used by the OpenCode SDK.
 app.all(`${OPENCODE_PROXY_PREFIX}/*`, async (c) => {
 	const releaseActivity = retainServerActivity()
 	let releaseWithResponse = false
