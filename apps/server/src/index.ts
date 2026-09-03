@@ -527,6 +527,17 @@ app.all("/local-preview/:token/*", async (c) => {
 const webRoot =
 	process.env.EIGENT_WEB_ROOT ?? path.resolve(import.meta.dir, "../../desktop/dist-web")
 
+function webAssetHeaders(relativePath: string, contentType?: string): Headers {
+	const headers = new Headers({
+		"Cache-Control": relativePath.startsWith("assets/")
+			? "public, max-age=31536000, immutable"
+			: "no-cache",
+		"X-Content-Type-Options": "nosniff",
+	})
+	if (contentType) headers.set("Content-Type", contentType)
+	return headers
+}
+
 app.get("*", async (c) => {
 	const requestPath = decodeURIComponent(new URL(c.req.url).pathname)
 	const relativePath = requestPath === "/" ? "index.html" : requestPath.replace(/^\/+/, "")
@@ -535,11 +546,15 @@ app.get("*", async (c) => {
 
 	if (candidate.startsWith(rootPrefix)) {
 		const file = Bun.file(candidate)
-		if (await file.exists()) return new Response(file)
+		if (await file.exists()) {
+			return new Response(file, { headers: webAssetHeaders(relativePath, file.type) })
+		}
 	}
 
 	const index = Bun.file(path.join(webRoot, "index.html"))
-	if (await index.exists()) return new Response(index)
+	if (await index.exists()) {
+		return new Response(index, { headers: webAssetHeaders("index.html", index.type) })
+	}
 
 	return c.json(
 		{

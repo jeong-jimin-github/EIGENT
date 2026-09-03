@@ -133,7 +133,20 @@ try {
 
 	const staticResponse = await fetch(`${httpBase}/`)
 	assert(staticResponse.ok, `static PWA returned ${staticResponse.status}`)
-	assert((await staticResponse.text()).toLowerCase().includes("<html"), "static PWA index missing")
+	assert(
+		staticResponse.headers.get("cache-control") === "no-cache",
+		"static PWA index must revalidate",
+	)
+	const staticHtml = await staticResponse.text()
+	assert(staticHtml.toLowerCase().includes("<html"), "static PWA index missing")
+	const hashedAssetPath = staticHtml.match(/\/assets\/[^"']+\.(?:js|css)/)?.[0]
+	assert(hashedAssetPath, "static PWA did not reference a hashed asset")
+	const hashedAssetResponse = await fetch(`${httpBase}${hashedAssetPath}`)
+	assert(hashedAssetResponse.ok, `hashed asset returned ${hashedAssetResponse.status}`)
+	assert(
+		hashedAssetResponse.headers.get("cache-control") === "public, max-age=31536000, immutable",
+		"hashed assets must be immutable-cached",
+	)
 
 	const ready = await jsonRequest<{ components?: Record<string, unknown> }>(
 		`${httpBase}/health/ready`,

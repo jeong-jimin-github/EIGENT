@@ -150,6 +150,19 @@ server {
     auth_basic_user_file /etc/nginx/eigent.htpasswd;
     client_max_body_size 16m;
 
+    # Vite filenames under /assets/ are content-hashed. Serving them directly
+    # avoids a Bun proxy hop and lets browsers cache them for a full year.
+    location ^~ /assets/ {
+        alias /opt/eigent/apps/desktop/dist-web/assets/;
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_comp_level 5;
+        gzip_types application/javascript application/json text/css image/svg+xml;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:3100;
         proxy_http_version 1.1;
