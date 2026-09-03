@@ -11,20 +11,20 @@ function now() {
 const app = new Hono()
 	.get("/", (c) => c.json(now(), 200))
 	.get("/live", (c) => c.json(now(), 200))
-	.get("/agents", async (c) => {
-		try {
-			const providers = await providerRegistry.snapshots()
-			return c.json({ ...now(), providers: providers.length }, 200)
-		} catch (error) {
+	.get("/agents", (c) => {
+		const providers = providerRegistry.cachedSnapshots()
+		if (!providers) {
 			return c.json(
 				{
 					status: "degraded" as const,
 					timestamp: Date.now(),
-					error: error instanceof Error ? error.message : String(error),
+					providers: 0,
+					reason: "provider snapshot cache is not available yet",
 				},
 				503,
 			)
 		}
+		return c.json({ ...now(), providers: providers.length }, 200)
 	})
 	.get("/browser", async (c) => {
 		const browser = await browserRuntime.status()
@@ -45,11 +45,13 @@ const app = new Hono()
 		)
 	})
 	.get("/ready", async (c) => {
-		const [browser, desktop, providers] = await Promise.allSettled([
+		// Health probes must be observational. In particular, do not let a periodic
+		// readiness check launch expensive native provider CLIs on low-memory hosts.
+		const [browser, desktop] = await Promise.allSettled([
 			browserRuntime.status(),
 			desktopRuntime.status(),
-			providerRegistry.snapshots(),
 		])
+		const providers = providerRegistry.cachedSnapshots()
 		const processes = listManagedProcesses()
 		return c.json(
 			{
@@ -67,8 +69,8 @@ const app = new Hono()
 								}
 							: { ok: false, state: "error" },
 					agents: {
-						ok: providers.status === "fulfilled",
-						providers: providers.status === "fulfilled" ? providers.value.length : 0,
+						ok: providers !== null,
+						providers: providers?.length ?? 0,
 					},
 					processes: {
 						ok: true,

@@ -215,6 +215,11 @@ export class ProviderRegistry {
 		return this.snapshotRefresh
 	}
 
+	/** Return the last persisted/in-memory provider snapshot without spawning CLI probes. */
+	cachedSnapshots(): ProviderSnapshot[] | null {
+		return this.snapshotCache ? this.cloneSnapshots(this.snapshotCache.value) : null
+	}
+
 	async snapshots(): Promise<ProviderSnapshot[]> {
 		const cached = this.snapshotCache
 		if (!cached) return this.refreshSnapshots()
