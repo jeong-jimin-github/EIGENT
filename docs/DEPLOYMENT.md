@@ -200,8 +200,8 @@ Instead of nginx Basic Auth, place the hostname behind Cloudflare Access and cre
 
 - `GET /health/live` — process liveness.
 - `GET /health/ready` — aggregate agent/browser/desktop/process component snapshot.
-- `GET /health/agents` — provider status probe (`200` or `503`).
-- `GET /health/browser` — browser connectivity (`200` or `503`).
+- `GET /health/agents` — provider snapshot-cache probe (`200` when cached, `503` before the first lazy refresh).
+- `GET /health/browser` — browser request readiness; an installed managed browser may be idle (`200`) and starts on demand, while runtime failures return `503`.
 - `GET /health/processes` — managed process manager status.
 
 A disabled/unavailable browser or desktop is reported in readiness without making the core server liveness endpoint fail.

@@ -32,10 +32,16 @@ const app = new Hono()
 		return c.json({ ...now(), providers: providers.length }, 200)
 	})
 	.get("/browser", async (c) => {
-		const browser = await browserRuntime.status()
+		const browser = await browserRuntime.healthStatus()
+		const ready = browserRuntimeReadyForRequests(browser)
 		return c.json(
-			{ ...now(), connected: browser.connected, state: browser.state },
-			browser.connected ? 200 : 503,
+			{
+				status: ready ? ("ok" as const) : ("degraded" as const),
+				timestamp: Date.now(),
+				connected: browser.connected,
+				state: browser.state,
+			},
+			ready ? 200 : 503,
 		)
 	})
 	.get("/processes", (c) => {

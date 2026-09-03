@@ -229,10 +229,14 @@ try {
 
 	const agentHealth = await fetch(`${httpBase}/health/agents`)
 	assert([200, 503].includes(agentHealth.status), `agent health returned ${agentHealth.status}`)
-	const browserHealth = await fetch(`${httpBase}/health/browser`)
+	const browserHealth = await jsonRequest<{ status?: string; state?: string }>(
+		`${httpBase}/health/browser`,
+	)
 	assert(
-		[200, 503].includes(browserHealth.status),
-		`browser health returned ${browserHealth.status}`,
+		browserHealth.response.status === 200 &&
+			browserHealth.body.status === "ok" &&
+			browserHealth.body.state === "idle",
+		`idle browser health should be ready: ${browserHealth.response.status} ${JSON.stringify(browserHealth.body)}`,
 	)
 	const processHealth = await fetch(`${httpBase}/health/processes`)
 	assert(processHealth.ok, `process health returned ${processHealth.status}`)
