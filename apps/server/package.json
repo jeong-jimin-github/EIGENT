@@ -17,7 +17,7 @@
 	"scripts": {
 		"dev": "bun run --hot src/index.ts",
 		"build": "rm -rf dist && tsc -p tsconfig.build.json && bun build src/index.ts --outdir dist --target bun --external node-pty && node -e \"require('node:fs').copyFileSync('src/browser-worker.mjs','dist/browser-worker.mjs')\"",
-		"build:types": "tsc -p tsconfig.build.json",
+		"build:types": "tsc -p tsconfig.build.json && find dist -type f \\( -name '*.test.d.ts' -o -name '*.test.d.ts.map' -o -name '*.spec.d.ts' -o -name '*.spec.d.ts.map' \\) -delete",
 		"check-types": "tsgo --noEmit",
 		"start": "bun run dist/index.js",
 		"browser:mcp": "bun run src/browser-mcp.ts",
