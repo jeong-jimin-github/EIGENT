@@ -122,6 +122,10 @@ const server = Bun.spawn({
 		EIGENT_ALLOWED_HOSTS: host,
 		EIGENT_ALLOWED_ORIGINS: httpBase,
 		EIGENT_MUTATION_RATE_LIMIT_PER_MINUTE: "600",
+		// The production readiness contract requires a browser executable to be installed,
+		// but this smoke never launches the browser. Point discovery at Bun so readiness
+		// exercises the healthy-idle path without depending on a runner-specific Chrome install.
+		EIGENT_BROWSER_EXECUTABLE: process.execPath,
 		EIGENT_BROWSER_STARTUP_TIMEOUT_MS: "1000",
 	},
 	stdout: "inherit",
@@ -148,10 +152,13 @@ try {
 		"hashed assets must be immutable-cached",
 	)
 
-	const ready = await jsonRequest<{ components?: Record<string, unknown> }>(
+	const ready = await jsonRequest<{ status?: string; components?: Record<string, unknown> }>(
 		`${httpBase}/health/ready`,
 	)
-	assert(ready.response.ok && ready.body.components, "readiness endpoint is missing components")
+	assert(
+		ready.response.status === 200 && ready.body.status === "ok" && ready.body.components,
+		`readiness endpoint should be healthy: ${ready.response.status} ${JSON.stringify(ready.body)}`,
+	)
 	for (const component of ["agents", "browser", "desktop", "processes"]) {
 		assert(component in ready.body.components, `readiness missing ${component}`)
 	}
