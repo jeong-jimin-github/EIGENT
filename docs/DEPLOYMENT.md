@@ -67,6 +67,11 @@ EIGENT_MUTATION_RATE_LIMIT_PER_MINUTE=240
 # Optional for a headless deployment.
 EIGENT_DESKTOP_ENABLED=false
 
+# Recommended on memory-constrained hosts. The managed OpenCode child is stopped
+# after this many milliseconds without proxied clients, but only when every
+# reported OpenCode session is idle. Set 0 to disable this lifecycle policy.
+EIGENT_OPENCODE_IDLE_TIMEOUT_MS=60000
+
 # Provider credentials belong here, never in VITE_* variables or the client bundle.
 # OPENAI_API_KEY=...
 # ANTHROPIC_API_KEY=...

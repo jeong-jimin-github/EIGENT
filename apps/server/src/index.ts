@@ -28,7 +28,7 @@ import {
 	isAllowedOrigin,
 	maxRequestBytes,
 } from "./services/security-policy"
-import { ensureSingleServer } from "./services/server-manager"
+import { ensureSingleServer, retainServerActivity } from "./services/server-manager"
 import { createTerminalSession, type TerminalSession } from "./services/terminal-session"
 import { resolveWorkspaceScope } from "./services/workspace-policy"
 import {
@@ -384,10 +384,55 @@ async function warmOpenCodeProviderCache(serverUrl: string): Promise<void> {
 	}
 }
 
+function releaseOnStreamClose(
+	body: ReadableStream<Uint8Array> | null,
+	release: () => void,
+): ReadableStream<Uint8Array> | null {
+	if (!body) {
+		release()
+		return null
+	}
+
+	const reader = body.getReader()
+	let finished = false
+	const finish = () => {
+		if (finished) return
+		finished = true
+		release()
+	}
+
+	return new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			try {
+				const chunk = await reader.read()
+				if (chunk.done) {
+					finish()
+					controller.close()
+					return
+				}
+				controller.enqueue(chunk.value)
+			} catch (error) {
+				finish()
+				controller.error(error)
+			}
+		},
+		async cancel(reason) {
+			finish()
+			try {
+				await reader.cancel(reason)
+			} catch {
+				// The upstream request may already be aborted.
+			}
+		},
+	})
+}
+
 // Browser deployments need a same-origin path to the loopback-only OpenCode
 // server. This proxy keeps port 4101 private while supporting normal JSON API
 // calls and streaming SSE responses used by the OpenCode SDK.
 app.all(`${OPENCODE_PROXY_PREFIX}/*`, async (c) => {
+	const releaseActivity = retainServerActivity()
+	let releaseWithResponse = false
 	try {
 		const server = await ensureSingleServer()
 		const incomingUrl = new URL(c.req.url)
@@ -449,7 +494,8 @@ app.all(`${OPENCODE_PROXY_PREFIX}/*`, async (c) => {
 		}
 
 		const responseHeaders = sanitizeOpenCodeResponseHeaders(upstream.headers, upstream.status)
-		return new Response(upstream.body, {
+		releaseWithResponse = true
+		return new Response(releaseOnStreamClose(upstream.body, releaseActivity), {
 			status: upstream.status,
 			statusText: upstream.statusText,
 			headers: responseHeaders,
@@ -457,6 +503,8 @@ app.all(`${OPENCODE_PROXY_PREFIX}/*`, async (c) => {
 	} catch (err) {
 		const message = err instanceof Error ? err.message : "OpenCode proxy failed"
 		return c.json({ error: message }, 502)
+	} finally {
+		if (!releaseWithResponse) releaseActivity()
 	}
 })
 

@@ -20,9 +20,90 @@ let singleServer: {
 	server: OpenCodeServer
 	process: ReturnType<typeof Bun.spawn> | null
 } | null = null
+let singleServerStartPromise: Promise<OpenCodeServer> | null = null
 
 const OPENCODE_PORT = 4101
 const OPENCODE_HOSTNAME = "127.0.0.1"
+let activeServerLeases = 0
+let idleShutdownTimer: ReturnType<typeof setTimeout> | null = null
+
+export function resolveOpenCodeIdleTimeoutMs(): number {
+	const configured = process.env.EIGENT_OPENCODE_IDLE_TIMEOUT_MS?.trim()
+	if (configured !== undefined && configured !== "") {
+		const value = Number(configured)
+		if (!Number.isFinite(value) || value <= 0) return 0
+		return Math.min(24 * 60 * 60_000, Math.max(1_000, Math.trunc(value)))
+	}
+	return process.env.EIGENT_BROWSER_LOW_MEMORY === "true" ? 60_000 : 0
+}
+
+export function hasActiveOpenCodeSessions(value: unknown): boolean {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return true
+	return Object.values(value as Record<string, unknown>).some((status) => {
+		if (!status || typeof status !== "object") return true
+		const type = (status as { type?: unknown }).type
+		return type !== "idle"
+	})
+}
+
+function clearIdleShutdownTimer(): void {
+	if (!idleShutdownTimer) return
+	clearTimeout(idleShutdownTimer)
+	idleShutdownTimer = null
+}
+
+async function managedServerHasActiveSessions(server: OpenCodeServer): Promise<boolean> {
+	try {
+		const response = await fetch(`${server.url}/session/status`, {
+			signal: AbortSignal.timeout(2_000),
+		})
+		if (!response.ok) return true
+		return hasActiveOpenCodeSessions(await response.json())
+	} catch {
+		// A failed status probe should never terminate a potentially busy agent.
+		return true
+	}
+}
+
+function scheduleIdleShutdown(): void {
+	clearIdleShutdownTimer()
+	const timeoutMs = resolveOpenCodeIdleTimeoutMs()
+	if (timeoutMs <= 0 || activeServerLeases > 0 || !singleServer?.process) return
+
+	idleShutdownTimer = setTimeout(() => {
+		idleShutdownTimer = null
+		void (async () => {
+			const current = singleServer?.server
+			if (!current || activeServerLeases > 0 || !singleServer?.process) return
+			const hasActiveSessions = await managedServerHasActiveSessions(current)
+
+			// A new proxy request may acquire a lease while the status probe is in flight.
+			// Never stop a replaced/restarted process or a server that became active meanwhile.
+			if (activeServerLeases > 0 || singleServer?.server !== current || !singleServer.process)
+				return
+			if (hasActiveSessions) {
+				scheduleIdleShutdown()
+				return
+			}
+			console.log(`Stopping idle OpenCode server after ${timeoutMs}ms without clients`)
+			stopServer()
+		})()
+	}, timeoutMs)
+	idleShutdownTimer.unref?.()
+}
+
+/** Hold the managed OpenCode process while a proxied client request/stream is active. */
+export function retainServerActivity(): () => void {
+	activeServerLeases++
+	clearIdleShutdownTimer()
+	let released = false
+	return () => {
+		if (released) return
+		released = true
+		activeServerLeases = Math.max(0, activeServerLeases - 1)
+		if (activeServerLeases === 0) scheduleIdleShutdown()
+	}
+}
 
 function resolveOpenCodeExecutable(): string {
 	if (process.platform !== "win32") return "opencode"
@@ -70,9 +151,7 @@ function openCodeEnvironment(): Record<string, string | undefined> {
  * The server is started without a specific cwd — it serves ALL projects.
  * Each API request uses the `directory` query param to scope to a project.
  */
-export async function ensureSingleServer(): Promise<OpenCodeServer> {
-	if (singleServer) return singleServer.server
-
+async function startSingleServer(): Promise<OpenCodeServer> {
 	// Check if there's already an opencode server running on our port
 	const existing = await detectExistingServer()
 	if (existing) {
@@ -109,14 +188,35 @@ export async function ensureSingleServer(): Promise<OpenCodeServer> {
 		if (singleServer?.process === proc) {
 			console.log(`OpenCode server (pid ${proc.pid}) exited — will restart on next request`)
 			singleServer = null
+			clearIdleShutdownTimer()
 		}
 	})
 
-	// Wait for the server to be ready
-	await waitForReady(url, Number(process.env.EIGENT_OPENCODE_STARTUP_TIMEOUT_MS ?? "15000"))
+	// Wait for the server to be ready. Do not leave a failed startup resident.
+	try {
+		await waitForReady(url, Number(process.env.EIGENT_OPENCODE_STARTUP_TIMEOUT_MS ?? "15000"))
+	} catch (error) {
+		if (singleServer?.process === proc) singleServer = null
+		proc.kill()
+		throw error
+	}
 
 	console.log(`OpenCode server started at ${url} (pid ${proc.pid})`)
+	if (activeServerLeases === 0) scheduleIdleShutdown()
 	return server
+}
+
+export async function ensureSingleServer(): Promise<OpenCodeServer> {
+	if (singleServer) return singleServer.server
+	if (singleServerStartPromise) return singleServerStartPromise
+
+	const startPromise = startSingleServer()
+	singleServerStartPromise = startPromise
+	try {
+		return await startPromise
+	} finally {
+		if (singleServerStartPromise === startPromise) singleServerStartPromise = null
+	}
 }
 
 /**
@@ -130,6 +230,7 @@ export function getServerUrl(): string | null {
  * Stops the single server if we manage it.
  */
 export function stopServer(): boolean {
+	clearIdleShutdownTimer()
 	if (!singleServer?.process) return false
 	singleServer.process.kill()
 	singleServer = null
