@@ -278,12 +278,28 @@ export class BrowserRuntime {
 
 	private stopManagedRuntime(): void {
 		this.clearIdleTimer()
-		if (this.workerPid !== undefined) this.terminateProcess(this.workerPid)
-		if (this.spawnedPid !== undefined) this.terminateProcess(this.spawnedPid)
-		this.workerPid = undefined
-		this.spawnedPid = undefined
 		this.state = "idle"
 		this.lastError = undefined
+		const workerPid = this.workerPid
+		const browserPid = this.spawnedPid
+		this.workerPid = undefined
+		this.spawnedPid = undefined
+		if (workerPid !== undefined) this.terminateProcess(workerPid)
+		if (browserPid !== undefined) this.terminateProcess(browserPid)
+	}
+
+	private handleManagedProcessExit(kind: "browser" | "worker", pid: number): void {
+		if (kind === "browser") {
+			if (this.spawnedPid !== pid) return
+			this.spawnedPid = undefined
+		} else {
+			if (this.workerPid !== pid) return
+			this.workerPid = undefined
+		}
+		if (this.state !== "ready") return
+		this.stopManagedRuntime()
+		this.state = "error"
+		this.lastError = `Managed browser ${kind} exited unexpectedly`
 	}
 
 	private async cdpAvailable(): Promise<boolean> {
@@ -354,6 +370,10 @@ export class BrowserRuntime {
 		})
 		child.unref()
 		this.spawnedPid = child.pid
+		if (child.pid !== undefined) {
+			const pid = child.pid
+			child.once("exit", () => this.handleManagedProcessExit("browser", pid))
+		}
 	}
 
 	private workerPath(): string {
@@ -382,6 +402,10 @@ export class BrowserRuntime {
 		})
 		child.unref()
 		this.workerPid = child.pid
+		if (child.pid !== undefined) {
+			const pid = child.pid
+			child.once("exit", () => this.handleManagedProcessExit("worker", pid))
+		}
 	}
 
 	private cleanupFailedLaunch(
@@ -389,12 +413,12 @@ export class BrowserRuntime {
 		launchedWorkerPid: number | undefined,
 	): void {
 		if (launchedWorkerPid !== undefined) {
-			this.terminateProcess(launchedWorkerPid)
 			if (this.workerPid === launchedWorkerPid) this.workerPid = undefined
+			this.terminateProcess(launchedWorkerPid)
 		}
 		if (launchedBrowserPid !== undefined) {
-			this.terminateProcess(launchedBrowserPid)
 			if (this.spawnedPid === launchedBrowserPid) this.spawnedPid = undefined
+			this.terminateProcess(launchedBrowserPid)
 		}
 	}
 
@@ -488,6 +512,31 @@ export class BrowserRuntime {
 			}
 			return body.snapshot
 		})
+	}
+
+	async healthStatus(): Promise<BrowserRuntimeStatus> {
+		if (this.spawnedPid !== undefined && !this.isProcessRunning(this.spawnedPid)) {
+			this.handleManagedProcessExit("browser", this.spawnedPid)
+		}
+		if (this.workerPid !== undefined && !this.isProcessRunning(this.workerPid)) {
+			this.handleManagedProcessExit("worker", this.workerPid)
+		}
+		if (this.state === "ready" && (this.spawnedPid === undefined || this.workerPid === undefined)) {
+			return this.status()
+		}
+		const connected = this.state === "ready"
+		return {
+			...this.config,
+			executablePath: this.browserExecutable(),
+			state: this.state,
+			connected,
+			cdpUrl: this.cdpUrl(),
+			workerUrl: this.workerUrl(),
+			spawnedPid: this.spawnedPid,
+			workerPid: this.workerPid,
+			lastError: this.lastError,
+			tabs: [],
+		}
 	}
 
 	async status(): Promise<BrowserRuntimeStatus> {

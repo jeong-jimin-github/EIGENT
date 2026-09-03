@@ -327,3 +327,112 @@ describe("browser runtime", () => {
 		}
 	})
 })
+
+describe("browser passive health", () => {
+	test("uses managed process state without HTTP probes", async () => {
+		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-passive-health-"))
+		try {
+			const runtime = new BrowserRuntime(
+				{
+					profileDir: path.join(root, "profile"),
+					downloadDir: path.join(root, "downloads"),
+					uploadDir: path.join(root, "uploads"),
+					debugPort: 19723,
+					workerPort: 19724,
+					headless: true,
+					startupTimeoutMs: 1000,
+					idleTimeoutMs: 0,
+				},
+				() => process.execPath,
+				() => {},
+				() => true,
+			)
+			Object.assign(runtime, { state: "ready", spawnedPid: 11111, workerPid: 22222 })
+
+			const status = await runtime.healthStatus()
+			expect(status.state).toBe("ready")
+			expect(status.connected).toBeTrue()
+			expect(status.spawnedPid).toBe(11111)
+			expect(status.workerPid).toBe(22222)
+		} finally {
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
+
+	test("cleans up the sibling process after an unexpected managed exit", () => {
+		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-child-exit-"))
+		const terminated: number[] = []
+		try {
+			const runtime = new BrowserRuntime(
+				{
+					profileDir: path.join(root, "profile"),
+					downloadDir: path.join(root, "downloads"),
+					uploadDir: path.join(root, "uploads"),
+					debugPort: 19823,
+					workerPort: 19824,
+					headless: true,
+					startupTimeoutMs: 1000,
+					idleTimeoutMs: 0,
+				},
+				() => process.execPath,
+				(pid) => terminated.push(pid),
+				() => true,
+			)
+			Object.assign(runtime, { state: "ready", spawnedPid: 11111, workerPid: 22222 })
+			const internal = runtime as unknown as {
+				state: string
+				lastError?: string
+				spawnedPid?: number
+				workerPid?: number
+				handleManagedProcessExit(kind: "browser" | "worker", pid: number): void
+			}
+
+			internal.handleManagedProcessExit("worker", 22222)
+
+			expect(internal.state).toBe("error")
+			expect(internal.lastError).toContain("worker")
+			expect(internal.spawnedPid).toBeUndefined()
+			expect(internal.workerPid).toBeUndefined()
+			expect(terminated).toEqual([11111])
+		} finally {
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
+
+	test("falls back to active probes for an externally attached runtime", async () => {
+		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-external-health-"))
+		const cdp = Bun.serve({ port: 0, fetch: () => Response.json({ Browser: "test" }) })
+		const worker = Bun.serve({
+			port: 0,
+			fetch(request) {
+				if (new URL(request.url).pathname === "/health") {
+					return Response.json({ service: "eigent-browser-worker" })
+				}
+				return Response.json({ tabs: [] })
+			},
+		})
+		try {
+			if (cdp.port === undefined || worker.port === undefined)
+				throw new Error("Test port unavailable")
+			const runtime = new BrowserRuntime({
+				profileDir: path.join(root, "profile"),
+				downloadDir: path.join(root, "downloads"),
+				uploadDir: path.join(root, "uploads"),
+				debugPort: cdp.port,
+				workerPort: worker.port,
+				headless: true,
+				startupTimeoutMs: 1000,
+				idleTimeoutMs: 0,
+			})
+			Object.assign(runtime, { state: "ready" })
+
+			const status = await runtime.healthStatus()
+			expect(status.state).toBe("ready")
+			expect(status.connected).toBeTrue()
+		} finally {
+			cdp.stop(true)
+			worker.stop(true)
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
+})

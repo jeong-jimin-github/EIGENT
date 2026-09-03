@@ -52,7 +52,7 @@ const app = new Hono()
 		// Health probes must be observational. In particular, do not let a periodic
 		// readiness check launch expensive native provider CLIs on low-memory hosts.
 		const [browser, desktop] = await Promise.allSettled([
-			browserRuntime.status(),
+			browserRuntime.healthStatus(),
 			desktopRuntime.healthStatus(),
 		])
 		const providers = providerRegistry.cachedSnapshots()
