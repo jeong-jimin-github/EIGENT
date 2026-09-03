@@ -183,9 +183,8 @@ export class BrowserRuntime {
 	}
 	private async cdpAvailable(): Promise<boolean> {
 		try {
-			return (
-				await fetch(`${this.cdpUrl()}/json/version`, { signal: AbortSignal.timeout(10_000) })
-			).ok
+			return (await fetch(`${this.cdpUrl()}/json/version`, { signal: AbortSignal.timeout(10_000) }))
+				.ok
 		} catch {
 			return false
 		}
