@@ -71,6 +71,10 @@ EIGENT_DESKTOP_ENABLED=false
 # after this many milliseconds without proxied clients, but only when every
 # reported OpenCode session is idle. Set 0 to disable this lifecycle policy.
 EIGENT_OPENCODE_IDLE_TIMEOUT_MS=60000
+# The managed Chrome + Playwright worker use the same low-memory lifecycle idea.
+# Browser Live snapshots and browser actions hold an activity lease, so active work
+# is never interrupted. Set 0 to keep the browser resident after first use.
+EIGENT_BROWSER_IDLE_TIMEOUT_MS=60000
 # Avoid competing CLI/model probes during OpenCode cold starts on small VMs.
 EIGENT_PROVIDER_PREWARM=false
 

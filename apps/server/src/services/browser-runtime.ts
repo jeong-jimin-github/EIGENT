@@ -13,6 +13,7 @@ export interface BrowserRuntimeConfig {
 	workerPort: number
 	headless: boolean
 	startupTimeoutMs: number
+	idleTimeoutMs: number
 }
 export interface BrowserTabInfo {
 	id: string
@@ -87,6 +88,15 @@ function envNumber(name: string, fallback: number): number {
 	const value = Number(process.env[name])
 	return Number.isFinite(value) && value > 0 ? value : fallback
 }
+
+export function browserIdleTimeoutMs(): number {
+	const configured = process.env.EIGENT_BROWSER_IDLE_TIMEOUT_MS?.trim()
+	if (configured !== undefined && configured !== "") {
+		const value = Number(configured)
+		return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : 0
+	}
+	return process.env.EIGENT_BROWSER_LOW_MEMORY === "true" ? 60_000 : 0
+}
 export function loadBrowserRuntimeConfig(): BrowserRuntimeConfig {
 	const dataDir = defaultDataDir()
 	const debugPort = envNumber("EIGENT_BROWSER_DEBUG_PORT", 9223)
@@ -111,6 +121,7 @@ export function loadBrowserRuntimeConfig(): BrowserRuntimeConfig {
 		workerPort: envNumber("EIGENT_BROWSER_WORKER_PORT", debugPort + 1),
 		headless: envBool("EIGENT_BROWSER_HEADLESS", defaultHeadless),
 		startupTimeoutMs: envNumber("EIGENT_BROWSER_STARTUP_TIMEOUT_MS", 15_000),
+		idleTimeoutMs: browserIdleTimeoutMs(),
 	}
 }
 function commandPath(command: string): string | undefined {
@@ -192,6 +203,9 @@ export class BrowserRuntime {
 	private lastError?: string
 	private executablePathCache?: string
 	private executableDiscoveryAttempted = false
+	private idleTimer?: ReturnType<typeof setTimeout>
+	private lastActivityAt = 0
+	private activeOperations = 0
 
 	constructor(
 		private readonly config = loadBrowserRuntimeConfig(),
@@ -221,6 +235,57 @@ export class BrowserRuntime {
 		}
 		return this.executablePathCache
 	}
+	private clearIdleTimer(): void {
+		if (this.idleTimer) clearTimeout(this.idleTimer)
+		this.idleTimer = undefined
+	}
+
+	private scheduleIdleShutdown(): void {
+		this.clearIdleTimer()
+		if (this.config.idleTimeoutMs <= 0 || (!this.spawnedPid && !this.workerPid)) return
+		const remaining = Math.max(1, this.config.idleTimeoutMs - (Date.now() - this.lastActivityAt))
+		this.idleTimer = setTimeout(() => {
+			this.idleTimer = undefined
+			if (this.activeOperations > 0 || this.ensurePromise) {
+				this.lastActivityAt = Date.now()
+				this.scheduleIdleShutdown()
+				return
+			}
+			const elapsed = Date.now() - this.lastActivityAt
+			if (elapsed < this.config.idleTimeoutMs) {
+				this.scheduleIdleShutdown()
+				return
+			}
+			this.stopManagedRuntime()
+		}, remaining)
+	}
+
+	private touchActivity(): void {
+		this.lastActivityAt = Date.now()
+		if (this.activeOperations === 0 && !this.ensurePromise) this.scheduleIdleShutdown()
+	}
+
+	private async withActivity<T>(operation: () => Promise<T>): Promise<T> {
+		this.activeOperations++
+		this.clearIdleTimer()
+		try {
+			return await operation()
+		} finally {
+			this.activeOperations = Math.max(0, this.activeOperations - 1)
+			this.touchActivity()
+		}
+	}
+
+	private stopManagedRuntime(): void {
+		this.clearIdleTimer()
+		if (this.workerPid !== undefined) this.terminateProcess(this.workerPid)
+		if (this.spawnedPid !== undefined) this.terminateProcess(this.spawnedPid)
+		this.workerPid = undefined
+		this.spawnedPid = undefined
+		this.state = "idle"
+		this.lastError = undefined
+	}
+
 	private async cdpAvailable(): Promise<boolean> {
 		try {
 			return (await fetch(`${this.cdpUrl()}/json/version`, { signal: AbortSignal.timeout(10_000) }))
@@ -345,6 +410,7 @@ export class BrowserRuntime {
 	async ensureReady(): Promise<void> {
 		if ((await this.cdpAvailable()) && (await this.workerAvailable())) {
 			this.state = "ready"
+			this.touchActivity()
 			return
 		}
 		if (this.ensurePromise) return this.ensurePromise
@@ -375,6 +441,7 @@ export class BrowserRuntime {
 					)
 				}
 				this.state = "ready"
+				this.touchActivity()
 			} catch (error) {
 				this.cleanupFailedLaunch(launchedBrowserPid, launchedWorkerPid)
 				this.state = "error"
@@ -382,40 +449,45 @@ export class BrowserRuntime {
 				throw error
 			} finally {
 				this.ensurePromise = undefined
+				if (this.state === "ready" && this.activeOperations === 0) this.touchActivity()
 			}
 		})()
 		return this.ensurePromise
 	}
 
 	async action(input: unknown): Promise<unknown> {
-		await this.ensureReady()
-		const response = await fetch(`${this.workerUrl()}/action`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(input),
-			signal: AbortSignal.timeout(60_000),
+		return this.withActivity(async () => {
+			await this.ensureReady()
+			const response = await fetch(`${this.workerUrl()}/action`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(input),
+				signal: AbortSignal.timeout(60_000),
+			})
+			const body = (await response.json()) as { result?: unknown; error?: string }
+			if (!response.ok || body.error)
+				throw new Error(body.error ?? `Browser worker returned HTTP ${response.status}`)
+			return body.result
 		})
-		const body = (await response.json()) as { result?: unknown; error?: string }
-		if (!response.ok || body.error)
-			throw new Error(body.error ?? `Browser worker returned HTTP ${response.status}`)
-		return body.result
 	}
 
 	async liveSnapshot(
 		options: { pageId?: string; quality?: number } = {},
 	): Promise<BrowserLiveSnapshot> {
-		await this.ensureReady()
-		const response = await fetch(`${this.workerUrl()}/live`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(options),
-			signal: AbortSignal.timeout(10_000),
+		return this.withActivity(async () => {
+			await this.ensureReady()
+			const response = await fetch(`${this.workerUrl()}/live`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(options),
+				signal: AbortSignal.timeout(10_000),
+			})
+			const body = (await response.json()) as { snapshot?: BrowserLiveSnapshot; error?: string }
+			if (!response.ok || !body.snapshot) {
+				throw new Error(body.error ?? `Browser worker returned HTTP ${response.status}`)
+			}
+			return body.snapshot
 		})
-		const body = (await response.json()) as { snapshot?: BrowserLiveSnapshot; error?: string }
-		if (!response.ok || !body.snapshot) {
-			throw new Error(body.error ?? `Browser worker returned HTTP ${response.status}`)
-		}
-		return body.snapshot
 	}
 
 	async status(): Promise<BrowserRuntimeStatus> {

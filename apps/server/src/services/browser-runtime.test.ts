@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import {
 	BrowserRuntime,
+	browserIdleTimeoutMs,
 	discoverBrowserExecutable,
 	loadBrowserRuntimeConfig,
 } from "./browser-runtime"
@@ -34,6 +35,7 @@ describe("browser runtime", () => {
 			workerPort: 19324,
 			headless: true,
 			startupTimeoutMs: 1000,
+			idleTimeoutMs: 0,
 		}
 		try {
 			expect(() => new BrowserRuntime(config)).not.toThrow()
@@ -45,6 +47,27 @@ describe("browser runtime", () => {
 
 	test("does not accept a missing explicit browser executable", () => {
 		expect(discoverBrowserExecutable(path.resolve("missing-browser.exe"))).toBeUndefined()
+	})
+
+	test("uses a 60 second browser idle timeout only on low-memory hosts by default", () => {
+		const previousLowMemory = process.env.EIGENT_BROWSER_LOW_MEMORY
+		const previousIdleTimeout = process.env.EIGENT_BROWSER_IDLE_TIMEOUT_MS
+		try {
+			delete process.env.EIGENT_BROWSER_IDLE_TIMEOUT_MS
+			process.env.EIGENT_BROWSER_LOW_MEMORY = "true"
+			expect(browserIdleTimeoutMs()).toBe(60_000)
+			process.env.EIGENT_BROWSER_LOW_MEMORY = "false"
+			expect(browserIdleTimeoutMs()).toBe(0)
+			process.env.EIGENT_BROWSER_IDLE_TIMEOUT_MS = "250"
+			expect(browserIdleTimeoutMs()).toBe(250)
+			process.env.EIGENT_BROWSER_IDLE_TIMEOUT_MS = "0"
+			expect(browserIdleTimeoutMs()).toBe(0)
+		} finally {
+			if (previousLowMemory === undefined) delete process.env.EIGENT_BROWSER_LOW_MEMORY
+			else process.env.EIGENT_BROWSER_LOW_MEMORY = previousLowMemory
+			if (previousIdleTimeout === undefined) delete process.env.EIGENT_BROWSER_IDLE_TIMEOUT_MS
+			else process.env.EIGENT_BROWSER_IDLE_TIMEOUT_MS = previousIdleTimeout
+		}
 	})
 
 	test("caches browser executable discovery across status polls", async () => {
@@ -60,6 +83,7 @@ describe("browser runtime", () => {
 					workerPort: 19424,
 					headless: true,
 					startupTimeoutMs: 1000,
+					idleTimeoutMs: 0,
 				},
 				() => {
 					discoveryCalls++
@@ -103,6 +127,7 @@ describe("browser runtime", () => {
 				workerPort: worker.port,
 				headless: true,
 				startupTimeoutMs: 1000,
+				idleTimeoutMs: 0,
 			})
 
 			const healthy = await runtime.status()
@@ -134,6 +159,7 @@ describe("browser runtime", () => {
 					workerPort: 19624,
 					headless: true,
 					startupTimeoutMs: 30,
+					idleTimeoutMs: 0,
 				},
 				() => process.execPath,
 				() => {},
@@ -162,6 +188,7 @@ describe("browser runtime", () => {
 					workerPort: 19524,
 					headless: true,
 					startupTimeoutMs: 30,
+					idleTimeoutMs: 0,
 				},
 				() => process.execPath,
 				(pid) => terminated.push(pid),
@@ -181,6 +208,104 @@ describe("browser runtime", () => {
 		}
 	})
 
+	test("stops managed browser children after the configured idle timeout", async () => {
+		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-idle-"))
+		const terminated: number[] = []
+		const cdp = Bun.serve({ port: 0, fetch: () => Response.json({ Browser: "test" }) })
+		const worker = Bun.serve({
+			port: 0,
+			fetch(request) {
+				if (new URL(request.url).pathname === "/health") {
+					return Response.json({ service: "eigent-browser-worker" })
+				}
+				return Response.json({ tabs: [] })
+			},
+		})
+		try {
+			if (cdp.port === undefined || worker.port === undefined)
+				throw new Error("Test port unavailable")
+			const runtime = new BrowserRuntime(
+				{
+					profileDir: path.join(root, "profile"),
+					downloadDir: path.join(root, "downloads"),
+					uploadDir: path.join(root, "uploads"),
+					debugPort: cdp.port,
+					workerPort: worker.port,
+					headless: true,
+					startupTimeoutMs: 1000,
+					idleTimeoutMs: 20,
+				},
+				() => process.execPath,
+				(pid) => terminated.push(pid),
+				() => true,
+			)
+			Object.assign(runtime, { spawnedPid: 11111, workerPid: 22222 })
+			await runtime.ensureReady()
+			await new Promise((resolve) => setTimeout(resolve, 60))
+			expect(terminated).toEqual([22222, 11111])
+			const internal = runtime as unknown as {
+				spawnedPid?: number
+				workerPid?: number
+				state: string
+			}
+			expect(internal.spawnedPid).toBeUndefined()
+			expect(internal.workerPid).toBeUndefined()
+			expect(internal.state).toBe("idle")
+		} finally {
+			cdp.stop(true)
+			worker.stop(true)
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
+
+	test("does not idle-stop the browser while an action is in flight", async () => {
+		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-active-"))
+		const terminated: number[] = []
+		const cdp = Bun.serve({ port: 0, fetch: () => Response.json({ Browser: "test" }) })
+		const worker = Bun.serve({
+			port: 0,
+			async fetch(request) {
+				const pathname = new URL(request.url).pathname
+				if (pathname === "/health") return Response.json({ service: "eigent-browser-worker" })
+				if (pathname === "/action") {
+					await new Promise((resolve) => setTimeout(resolve, 60))
+					return Response.json({ result: { ok: true } })
+				}
+				return Response.json({ tabs: [] })
+			},
+		})
+		try {
+			if (cdp.port === undefined || worker.port === undefined)
+				throw new Error("Test port unavailable")
+			const runtime = new BrowserRuntime(
+				{
+					profileDir: path.join(root, "profile"),
+					downloadDir: path.join(root, "downloads"),
+					uploadDir: path.join(root, "uploads"),
+					debugPort: cdp.port,
+					workerPort: worker.port,
+					headless: true,
+					startupTimeoutMs: 1000,
+					idleTimeoutMs: 20,
+				},
+				() => process.execPath,
+				(pid) => terminated.push(pid),
+				() => true,
+			)
+			Object.assign(runtime, { spawnedPid: 33333, workerPid: 44444 })
+			const action = runtime.action({ action: "tabs" })
+			await new Promise((resolve) => setTimeout(resolve, 35))
+			expect(terminated).toHaveLength(0)
+			await action
+			await new Promise((resolve) => setTimeout(resolve, 45))
+			expect(terminated).toEqual([44444, 33333])
+		} finally {
+			cdp.stop(true)
+			worker.stop(true)
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
+
 	test("sanitizes download filenames into the configured directory", () => {
 		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-unit-"))
 		try {
@@ -192,6 +317,7 @@ describe("browser runtime", () => {
 				workerPort: 19224,
 				headless: true,
 				startupTimeoutMs: 1000,
+				idleTimeoutMs: 0,
 			})
 			expect(runtime.resolveDownloadPath("../escape.txt")).toBe(
 				path.join(root, "downloads", "escape.txt"),
