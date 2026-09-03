@@ -75,6 +75,53 @@ describe("browser runtime", () => {
 		}
 	})
 
+	test("reports a runtime disconnect after a previously healthy status", async () => {
+		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-disconnect-"))
+		const cdp = Bun.serve({
+			port: 0,
+			fetch: () => Response.json({ Browser: "test" }),
+		})
+		const worker = Bun.serve({
+			port: 0,
+			fetch(request) {
+				if (new URL(request.url).pathname === "/health") {
+					return Response.json({ service: "eigent-browser-worker" })
+				}
+				return Response.json({ tabs: [] })
+			},
+		})
+
+		try {
+			if (cdp.port === undefined || worker.port === undefined) {
+				throw new Error("Test servers did not bind to a port")
+			}
+			const runtime = new BrowserRuntime({
+				profileDir: path.join(root, "profile"),
+				downloadDir: path.join(root, "downloads"),
+				uploadDir: path.join(root, "uploads"),
+				debugPort: cdp.port,
+				workerPort: worker.port,
+				headless: true,
+				startupTimeoutMs: 1000,
+			})
+
+			const healthy = await runtime.status()
+			expect(healthy.state).toBe("ready")
+			expect(healthy.connected).toBeTrue()
+			expect(healthy.lastError).toBeUndefined()
+
+			worker.stop(true)
+			const disconnected = await runtime.status()
+			expect(disconnected.state).toBe("error")
+			expect(disconnected.connected).toBeFalse()
+			expect(disconnected.lastError).toContain("Browser worker disconnected")
+		} finally {
+			cdp.stop(true)
+			worker.stop(true)
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
+
 	test("sanitizes download filenames into the configured directory", () => {
 		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-unit-"))
 		try {

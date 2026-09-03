@@ -388,7 +388,15 @@ export class BrowserRuntime {
 			}
 		}
 		const connected = cdp && worker
-		if (connected && this.state !== "starting") this.state = "ready"
+		if (connected && this.state !== "starting") {
+			this.state = "ready"
+			this.lastError = undefined
+		} else if (!connected && this.state === "ready") {
+			this.state = "error"
+			this.lastError = !cdp
+				? `Browser CDP disconnected at ${this.cdpUrl()}`
+				: `Browser worker disconnected at ${this.workerUrl()}`
+		}
 		return {
 			...this.config,
 			executablePath: this.browserExecutable(),
