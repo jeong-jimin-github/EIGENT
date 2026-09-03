@@ -166,8 +166,15 @@ export class BrowserRuntime {
 	private spawnedPid?: number
 	private workerPid?: number
 	private lastError?: string
+	private executablePathCache?: string
+	private executableDiscoveryAttempted = false
 
-	constructor(private readonly config = loadBrowserRuntimeConfig()) {
+	constructor(
+		private readonly config = loadBrowserRuntimeConfig(),
+		private readonly resolveExecutable: (
+			explicit?: string,
+		) => string | undefined = discoverBrowserExecutable,
+	) {
 		for (const dir of [config.profileDir, config.downloadDir, config.uploadDir]) {
 			if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 		}
@@ -180,6 +187,13 @@ export class BrowserRuntime {
 	}
 	private workerUrl(): string {
 		return `http://127.0.0.1:${this.config.workerPort}`
+	}
+	private browserExecutable(refresh = false): string | undefined {
+		if (refresh || !this.executableDiscoveryAttempted) {
+			this.executablePathCache = this.resolveExecutable(this.config.executablePath)
+			this.executableDiscoveryAttempted = true
+		}
+		return this.executablePathCache
 	}
 	private async cdpAvailable(): Promise<boolean> {
 		try {
@@ -299,7 +313,9 @@ export class BrowserRuntime {
 			this.lastError = undefined
 			try {
 				if (!(await this.cdpAvailable())) {
-					const executable = discoverBrowserExecutable(this.config.executablePath)
+					// Re-probe on an actual launch attempt so a browser installed after
+					// server startup is still discovered. Status polling uses the cache.
+					const executable = this.browserExecutable(true)
 					if (!executable)
 						throw new Error(
 							"No Chrome/Chromium/Edge executable found. Set EIGENT_BROWSER_EXECUTABLE.",
@@ -375,7 +391,7 @@ export class BrowserRuntime {
 		if (connected && this.state !== "starting") this.state = "ready"
 		return {
 			...this.config,
-			executablePath: discoverBrowserExecutable(this.config.executablePath),
+			executablePath: this.browserExecutable(),
 			state: this.state,
 			connected,
 			cdpUrl: this.cdpUrl(),

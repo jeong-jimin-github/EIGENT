@@ -47,6 +47,34 @@ describe("browser runtime", () => {
 		expect(discoverBrowserExecutable(path.resolve("missing-browser.exe"))).toBeUndefined()
 	})
 
+	test("caches browser executable discovery across status polls", async () => {
+		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-status-cache-"))
+		let discoveryCalls = 0
+		try {
+			const runtime = new BrowserRuntime(
+				{
+					profileDir: path.join(root, "profile"),
+					downloadDir: path.join(root, "downloads"),
+					uploadDir: path.join(root, "uploads"),
+					debugPort: 19423,
+					workerPort: 19424,
+					headless: true,
+					startupTimeoutMs: 1000,
+				},
+				() => {
+					discoveryCalls++
+					return process.execPath
+				},
+			)
+
+			expect((await runtime.status()).executablePath).toBe(process.execPath)
+			expect((await runtime.status()).executablePath).toBe(process.execPath)
+			expect(discoveryCalls).toBe(1)
+		} finally {
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
+
 	test("sanitizes download filenames into the configured directory", () => {
 		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-unit-"))
 		try {
