@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import * as realPaths from "../../src/utils/paths"
 
 // ─── Test helpers ────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ let filesDir: string
 
 // The backup module uses paths.ocBackupsDir() internally, so we mock it.
 mock.module("../../src/utils/paths", () => ({
+	...realPaths,
 	ocBackupsDir: () => backupsDir,
 }))
 

@@ -119,12 +119,8 @@ jobs:
       - name: Build production web and server
         run: bun run build:web
 
-      - name: Linux filesystem, security, and native PTY tests
-        run: >-
-          bun test
-          apps/server/src/services/security-policy.test.ts
-          apps/server/src/services/workspace-service.test.ts
-          apps/server/src/services/terminal-session.linux.test.ts
+      - name: Full test suite
+        run: bun test
 
       - name: Production server smoke test
         run: bun run scripts/linux-production-smoke.ts

@@ -5,6 +5,10 @@ import { describe, expect, test } from "bun:test"
 import { canonicalToCursor } from "../../src/converter/from-canonical/to-cursor"
 import type { CanonicalScanResult } from "../../src/types/canonical"
 
+function portablePath(path: string): string {
+	return path.replaceAll("\\", "/")
+}
+
 function emptyCanonical(): CanonicalScanResult {
 	return {
 		sourceFormat: "claude-code",
@@ -105,7 +109,7 @@ describe("canonicalToCursor", () => {
 		expect(ruleEntries.length).toBe(1)
 
 		const [path, content] = ruleEntries[0]
-		expect(path).toContain(".cursor/rules/")
+		expect(portablePath(path)).toContain(".cursor/rules/")
 		expect(path).toEndWith(".mdc")
 		expect(content).toContain("alwaysApply")
 	})
@@ -167,7 +171,7 @@ describe("canonicalToCursor", () => {
 		expect(result.agents.size).toBe(1)
 		const agentEntries = [...result.agents.entries()]
 		const [path, content] = agentEntries[0]
-		expect(path).toContain(".cursor/agents/build.md")
+		expect(portablePath(path)).toContain(".cursor/agents/build.md")
 		expect(content).toContain("build")
 	})
 
@@ -196,7 +200,7 @@ describe("canonicalToCursor", () => {
 		expect(result.commands.size).toBe(1)
 		const cmdEntries = [...result.commands.entries()]
 		const [path, content] = cmdEntries[0]
-		expect(path).toContain(".cursor/commands/commit.md")
+		expect(portablePath(path)).toContain(".cursor/commands/commit.md")
 		// Cursor commands are plain markdown
 		expect(content).toBe("Commit all staged changes.")
 		expect(content).not.toContain("---")

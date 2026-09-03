@@ -16,8 +16,8 @@
 	},
 	"scripts": {
 		"dev": "bun run --hot src/index.ts",
-		"build": "tsc && bun build src/index.ts --outdir dist --target bun --external node-pty && node -e \"require('node:fs').copyFileSync('src/browser-worker.mjs','dist/browser-worker.mjs')\"",
-		"build:types": "tsc",
+		"build": "rm -rf dist && tsc -p tsconfig.build.json && bun build src/index.ts --outdir dist --target bun --external node-pty && node -e \"require('node:fs').copyFileSync('src/browser-worker.mjs','dist/browser-worker.mjs')\"",
+		"build:types": "tsc -p tsconfig.build.json",
 		"check-types": "tsgo --noEmit",
 		"start": "bun run dist/index.js",
 		"browser:mcp": "bun run src/browser-mcp.ts",
