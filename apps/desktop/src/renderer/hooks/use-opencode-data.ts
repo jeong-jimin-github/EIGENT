@@ -11,7 +11,7 @@ import { useAtomValue } from "jotai"
 import { useCallback } from "react"
 import { serverConnectedAtom } from "../atoms/connection"
 import { isMockModeAtom } from "../atoms/mock-mode"
-import { MOCK_AGENTS, MOCK_CONFIG, MOCK_PROVIDERS } from "../lib/mock-data"
+import { MOCK_AGENTS, MOCK_CONFIG, MOCK_PROVIDERS } from "../lib/mock-opencode-data"
 import { fetchModelState, updateModelRecent } from "../services/backend"
 import { getBaseClient, getProjectClient } from "../services/connection-manager"
 
