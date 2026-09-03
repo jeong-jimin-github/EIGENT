@@ -11,7 +11,7 @@ export function App() {
 	return (
 		<JotaiProvider store={appStore}>
 			<QueryClientProvider client={queryClient}>
-				<div className="flex h-screen w-screen overflow-hidden">
+				<div className="flex h-screen h-dvh w-screen overflow-hidden">
 					<div className="min-w-0 flex-1">
 						<RouterProvider router={router} />
 					</div>

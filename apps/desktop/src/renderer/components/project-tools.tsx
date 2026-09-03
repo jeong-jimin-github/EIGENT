@@ -157,8 +157,8 @@ export function ProjectTools() {
 
 	return (
 		<Tabs defaultValue="files" className="h-full min-h-0 gap-0">
-			<div className="shrink-0 border-b px-3 py-2">
-				<TabsList variant="line">
+			<div className="shrink-0 overflow-x-auto border-b px-2 py-2 sm:px-3">
+				<TabsList variant="line" className="w-max min-w-full">
 					<TabsTrigger value="files">Files</TabsTrigger>
 					<TabsTrigger value="terminal">Terminal</TabsTrigger>
 					<TabsTrigger value="processes">Processes</TabsTrigger>

@@ -702,8 +702,8 @@ export function NewChat() {
 	return (
 		<div className="relative flex h-full flex-col">
 			{/* Hero area — vertically centered */}
-			<div className="flex flex-1 flex-col items-center justify-center px-0 sm:px-6">
-				<div className="w-full max-w-4xl space-y-8">
+			<div className="flex flex-1 flex-col items-center justify-center px-3 sm:px-6">
+				<div className="w-full max-w-4xl space-y-6 sm:space-y-8">
 					{/* Wordmark */}
 					<div className="flex justify-center">
 						<EigentWordmark className="text-base text-foreground" />
@@ -717,7 +717,7 @@ export function NewChat() {
 									render={
 										<button
 											type="button"
-											className="mt-1 inline-flex items-center gap-1 text-xl text-muted-foreground transition-colors hover:text-foreground"
+											className="mt-1 inline-flex min-h-10 items-center gap-1 rounded-md px-2 text-xl text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground sm:min-h-0 sm:px-0"
 										/>
 									}
 								>
@@ -733,7 +733,7 @@ export function NewChat() {
 											setWorktreeMode("local")
 											setProjectPickerOpen(false)
 										}}
-										className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
+										className={`flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
 											!selectedDirectory
 												? "bg-muted text-foreground"
 												: "text-muted-foreground"
@@ -750,7 +750,7 @@ export function NewChat() {
 												setSelectedDirectory(p.directory)
 												setProjectPickerOpen(false)
 											}}
-											className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
+											className={`flex min-h-11 w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
 												p.directory === selectedDirectory
 													? "bg-muted text-foreground"
 													: "text-muted-foreground"
@@ -791,7 +791,7 @@ export function NewChat() {
 			</div>
 
 			{/* Bottom-pinned input section */}
-			<div className="shrink-0 px-0 pb-0 pt-0 sm:px-6 sm:pb-5 sm:pt-3">
+			<div className="shrink-0 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-0 sm:px-6 sm:pb-5 sm:pt-3">
 				<div className="mx-auto w-full max-w-4xl">
 					{/* Input card */}
 					<PromptInputProvider key={NEW_CHAT_DRAFT_KEY} initialInput={draft}>
@@ -863,6 +863,7 @@ export function NewChat() {
 									)}
 								</PromptInputTools>
 								<PromptInputSubmit
+									className="size-10 sm:size-8"
 									disabled={launching || !runtimeReady}
 									status={launching ? "submitted" : undefined}
 								/>

@@ -25,9 +25,11 @@ import {
 	XIcon,
 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react"
 import type { OpenInTarget } from "../../preload/api"
 import {
 	activePreviewContextAtom,
+	rightPanelWidthPercentAtom,
 	reviewPanelOpenAtom,
 	reviewPanelSettingsAtom,
 	sessionDiffStatsFamily,
@@ -167,6 +169,54 @@ export function AgentDetail({
 	// Review panel state
 	const [reviewPanelOpen, setReviewPanelOpen] = useAtom(reviewPanelOpenAtom)
 	const [reviewSettings, setReviewSettings] = useAtom(reviewPanelSettingsAtom)
+	const [storedRightPanelWidth, setStoredRightPanelWidth] = useAtom(rightPanelWidthPercentAtom)
+	const clampRightPanelWidth = useCallback((value: number) => Math.min(72, Math.max(28, value)), [])
+	const [rightPanelWidth, setRightPanelWidth] = useState(() => clampRightPanelWidth(storedRightPanelWidth))
+
+	useEffect(() => {
+		setRightPanelWidth(clampRightPanelWidth(storedRightPanelWidth))
+	}, [clampRightPanelWidth, storedRightPanelWidth])
+
+	const beginReviewResize = useCallback(
+		(event: ReactPointerEvent<HTMLDivElement>) => {
+			if (event.button !== 0) return
+			event.preventDefault()
+			let finalWidth = rightPanelWidth
+			const previousCursor = document.body.style.cursor
+			const previousUserSelect = document.body.style.userSelect
+			document.body.style.cursor = "col-resize"
+			document.body.style.userSelect = "none"
+
+			const onPointerMove = (moveEvent: PointerEvent) => {
+				finalWidth = clampRightPanelWidth(((window.innerWidth - moveEvent.clientX) / window.innerWidth) * 100)
+				setRightPanelWidth(finalWidth)
+			}
+			const finish = () => {
+				window.removeEventListener("pointermove", onPointerMove)
+				window.removeEventListener("pointerup", finish)
+				window.removeEventListener("pointercancel", finish)
+				document.body.style.cursor = previousCursor
+				document.body.style.userSelect = previousUserSelect
+				setStoredRightPanelWidth(finalWidth)
+			}
+
+			window.addEventListener("pointermove", onPointerMove)
+			window.addEventListener("pointerup", finish)
+			window.addEventListener("pointercancel", finish)
+		},
+		[clampRightPanelWidth, rightPanelWidth, setStoredRightPanelWidth],
+	)
+
+	const resizeReviewWithKeyboard = useCallback(
+		(event: ReactKeyboardEvent<HTMLDivElement>) => {
+			if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+			event.preventDefault()
+			const next = clampRightPanelWidth(rightPanelWidth + (event.key === "ArrowLeft" ? 2 : -2))
+			setRightPanelWidth(next)
+			setStoredRightPanelWidth(next)
+		},
+		[clampRightPanelWidth, rightPanelWidth, setStoredRightPanelWidth],
+	)
 
 	// Keyboard shortcut: Cmd+Shift+D to toggle review panel
 	useEffect(() => {
@@ -321,17 +371,37 @@ export function AgentDetail({
 	)
 
 	return (
-		<div className="flex h-full">
-			{/* Chat panel -- takes remaining space */}
+		<div
+			className="relative flex h-full min-w-0 overflow-hidden"
+			style={{ "--review-panel-width": `${rightPanelWidth}%` } as CSSProperties}
+		>
+			{/* Chat keeps the whole phone width; review overlays it on mobile. */}
 			<div className="min-w-0 flex-1 flex flex-col">{chatContent}</div>
 
-			{/* Review panel -- slides in/out from right */}
 			<div
-				className="shrink-0 overflow-hidden border-l border-border transition-[width] duration-250 ease-in-out"
-				style={{ width: reviewPanelOpen ? (reviewSettings.expanded ? "100%" : "40%") : 0 }}
+				className={cn(
+					"absolute inset-y-0 right-0 z-40 shrink-0 overflow-hidden bg-background lg:static lg:z-auto lg:border-l lg:border-border",
+					reviewPanelOpen
+						? reviewSettings.expanded
+							? "w-full"
+							: "w-full lg:w-[var(--review-panel-width)]"
+						: "w-0",
+				)}
 			>
-				{/* Keep ReviewPanel mounted so it retains state, just hidden at 0 width */}
-				<div className="h-full" style={{ minWidth: reviewSettings.expanded ? "100vw" : "40vw" }}>
+				<div className="relative h-full w-full min-w-0 overflow-hidden">
+					{reviewPanelOpen && !reviewSettings.expanded ? (
+						<div
+							role="separator"
+							aria-label="Resize review panel"
+							aria-orientation="vertical"
+							tabIndex={0}
+							onPointerDown={beginReviewResize}
+							onKeyDown={resizeReviewWithKeyboard}
+							className="absolute inset-y-0 left-0 z-50 hidden w-3 cursor-col-resize touch-none items-center justify-center outline-none focus-visible:bg-primary/10 lg:flex"
+						>
+							<div className="h-full w-px bg-border" />
+						</div>
+					) : null}
 					<ReviewPanel sessionId={agent.sessionId} directory={agent.directory} />
 				</div>
 			</div>
@@ -446,7 +516,7 @@ function SessionAppBarContent({
 				}}
 			>
 				{/* Worktree actions (Apply to local, Commit & push) */}
-				{agent.worktreePath && <WorktreeActions agent={agent} />}
+				{agent.worktreePath && <div className="hidden sm:block"><WorktreeActions agent={agent} /></div>}
 
 				{agent.worktreePath && <div className="hidden h-3 w-px shrink-0 bg-border/60 md:block" />}
 
@@ -458,7 +528,7 @@ function SessionAppBarContent({
 								type="button"
 								onClick={onToggleReviewPanel}
 								className={cn(
-									"flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors",
+									"flex size-10 items-center justify-center gap-1.5 rounded-md px-2 text-xs transition-colors md:size-auto md:py-1",
 									reviewPanelOpen
 										? "bg-muted text-foreground"
 										: "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -468,7 +538,7 @@ function SessionAppBarContent({
 					>
 						<FileDiffIcon className="size-3.5" />
 						{diffStats.fileCount > 0 && (
-							<span className="flex items-center gap-1 text-[11px]">
+							<span className="hidden items-center gap-1 text-[11px] sm:flex">
 								<span className="text-green-500">+{diffStats.additions}</span>
 								<span className="text-red-500">-{diffStats.deletions}</span>
 							</span>
@@ -506,7 +576,7 @@ function SessionAppBarContent({
 							params: projectSlug ? { projectSlug } : undefined,
 						})
 					}
-					className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+					className="flex size-10 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:size-auto md:p-1"
 				>
 					<XIcon className="size-3.5" />
 				</button>

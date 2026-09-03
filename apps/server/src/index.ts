@@ -578,40 +578,60 @@ void ensureAgentClisInstalled()
 		)
 	})
 
-void (async () => {
-	if (desktopRuntime.getConfig().enabled) {
-		try {
-			await desktopRuntime.ensureReady()
-			const desktop = await desktopRuntime.status()
-			console.log(
-				`Shared desktop ready at ${desktop.display} (VNC ${desktop.vncHost}:${desktop.vncPort})`,
-			)
-		} catch (err) {
-			console.warn("Shared desktop unavailable on boot:", err instanceof Error ? err.message : err)
+const lowMemoryHost = process.env.EIGENT_BROWSER_LOW_MEMORY === "true"
+const auxRuntimePrewarmSetting = process.env.EIGENT_AUX_RUNTIME_PREWARM?.trim().toLowerCase()
+const shouldPrewarmAuxRuntimes =
+	auxRuntimePrewarmSetting === "true" || (auxRuntimePrewarmSetting !== "false" && !lowMemoryHost)
+
+if (shouldPrewarmAuxRuntimes) {
+	void (async () => {
+		if (desktopRuntime.getConfig().enabled) {
+			try {
+				await desktopRuntime.ensureReady()
+				const desktop = await desktopRuntime.status()
+				console.log(
+					`Shared desktop ready at ${desktop.display} (VNC ${desktop.vncHost}:${desktop.vncPort})`,
+				)
+			} catch (err) {
+				console.warn(
+					"Shared desktop unavailable on boot:",
+					err instanceof Error ? err.message : err,
+				)
+			}
 		}
-	}
 
-	try {
-		await browserRuntime.ensureReady()
-		const status = await browserRuntime.status()
-		console.log(`Persistent browser ready at ${status.cdpUrl} (${status.profileDir})`)
-	} catch (err) {
-		console.warn(
-			"Persistent browser unavailable on boot:",
-			err instanceof Error ? err.message : err,
-		)
-	}
-})()
+		try {
+			await browserRuntime.ensureReady()
+			const status = await browserRuntime.status()
+			console.log(`Persistent browser ready at ${status.cdpUrl} (${status.profileDir})`)
+		} catch (err) {
+			console.warn(
+				"Persistent browser unavailable on boot:",
+				err instanceof Error ? err.message : err,
+			)
+		}
+	})()
+} else {
+	console.log("Auxiliary browser/desktop runtimes will start on demand")
+}
 
-ensureAgentCliInstalled("opencode")
-	.then(() => ensureSingleServer())
-	.then((server) => {
-		console.log(`OpenCode server ready at ${server.url}`)
-		void warmOpenCodeProviderCache(server.url)
-	})
-	.catch((err) => {
-		console.error("Failed to install/start OpenCode server on boot:", err)
-	})
+const openCodePrewarmSetting = process.env.EIGENT_OPENCODE_PREWARM?.trim().toLowerCase()
+const shouldPrewarmOpenCode =
+	openCodePrewarmSetting === "true" || (openCodePrewarmSetting !== "false" && !lowMemoryHost)
+
+if (shouldPrewarmOpenCode) {
+	ensureAgentCliInstalled("opencode")
+		.then(() => ensureSingleServer())
+		.then((server) => {
+			console.log(`OpenCode server ready at ${server.url}`)
+			void warmOpenCodeProviderCache(server.url)
+		})
+		.catch((err) => {
+			console.error("Failed to install/start OpenCode server on boot:", err)
+		})
+} else {
+	console.log("OpenCode server will start on demand")
+}
 
 export default {
 	hostname,

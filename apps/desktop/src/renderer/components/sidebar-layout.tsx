@@ -96,7 +96,7 @@ function WindowControls() {
 		<div
 			className="absolute z-50 flex items-center gap-0.5"
 			style={{
-				top: 8,
+				top: isElectronEnv ? 8 : "calc(env(safe-area-inset-top) + 4px)",
 				left: WINDOW_CONTROLS_LEFT,
 				// @ts-expect-error -- vendor-prefixed CSS property
 				WebkitAppRegion: "no-drag",
@@ -108,7 +108,7 @@ function WindowControls() {
 						<Button
 							variant="ghost"
 							size="icon"
-							className="size-7 shrink-0"
+							className="size-10 shrink-0 md:size-7"
 							onClick={toggleSidebar}
 						/>
 					}
@@ -123,7 +123,7 @@ function WindowControls() {
 						<Button
 							variant="ghost"
 							size="icon"
-							className="size-7 shrink-0"
+							className="size-10 shrink-0 md:size-7"
 							onClick={() => navigate({ to: "/" })}
 						/>
 					}
@@ -209,7 +209,7 @@ export function SidebarLayout() {
 
 	return (
 		<div
-			className="relative flex h-screen text-foreground"
+			className="relative flex h-screen h-dvh text-foreground"
 			style={
 				{
 					"--window-controls-inset": `${WINDOW_CONTROLS_INSET}px`,

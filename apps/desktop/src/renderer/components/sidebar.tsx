@@ -121,7 +121,7 @@ export function AppSidebarContent({
 	})
 	const selectedSessionId =
 		routeParams.sessionId ??
-		(projectToolsOpen && projectToolsSession?.projectSlug === routeParams.projectSlug
+		(projectToolsOpen && projectToolsSession && projectToolsSession.projectSlug === routeParams.projectSlug
 			? projectToolsSession.sessionId
 			: null)
 	const automationsEnabled = useAtomValue(automationsEnabledAtom)

@@ -61,14 +61,14 @@ import { ProviderIcon } from "../settings/provider-icon"
 
 /** Base classes shared by ALL toolbar triggers (Popover + Select). */
 const TOOLBAR_TRIGGER_BASE_CN =
-	"flex h-7 items-center gap-1 rounded-md border-none bg-transparent px-2 text-xs shadow-none transition-colors"
+	"flex h-10 items-center gap-1 rounded-md border-none bg-transparent px-2 text-xs shadow-none transition-colors sm:h-7"
 
 /**
  * Classes for SelectTrigger overrides. Uses `!` modifier to beat the base
  * component's `py-2 pl-2.5 pr-2 dark:bg-input/30 dark:hover:bg-input/50`.
  */
 const TOOLBAR_TRIGGER_CN =
-	"h-7! gap-1 border-none bg-transparent! hover:bg-muted! px-2! py-0! text-xs shadow-none transition-colors"
+	"h-10! gap-1 border-none bg-transparent! hover:bg-muted! px-2! py-0! text-xs shadow-none transition-colors sm:h-7!"
 
 // ============================================================
 // Agent Selector

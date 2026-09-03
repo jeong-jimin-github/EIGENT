@@ -28,6 +28,12 @@ export interface ProjectToolsSessionContext {
 /** Session snapshot kept alive while the user temporarily opens Project Tools. */
 export const projectToolsSessionAtom = atom<ProjectToolsSessionContext | null>(null)
 
+/** Persisted desktop width shared by right-side preview/review panels. */
+export const rightPanelWidthPercentAtom = atomWithStorage<number>(
+	"eigent:right-panel-width-percent",
+	42,
+)
+
 // ============================================================
 // Review Panel State
 // ============================================================

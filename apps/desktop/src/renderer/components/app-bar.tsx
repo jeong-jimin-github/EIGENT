@@ -35,9 +35,10 @@ export function AppBar() {
 	return (
 		<div
 			data-slot="app-bar"
-			className="relative z-30 flex shrink-0 items-center border-b border-border/50 pl-4 pr-3 transition-[padding-left] duration-250 ease-in-out group-data-[state=collapsed]/sidebar-wrapper:pl-[var(--window-controls-inset)]"
+			className="relative z-30 flex shrink-0 items-center border-b border-border/50 pl-[var(--window-controls-inset)] pr-2 transition-[padding-left] duration-250 ease-in-out md:pl-4 md:pr-3 group-data-[state=collapsed]/sidebar-wrapper:pl-[var(--window-controls-inset)]"
 			style={{
-				height: APP_BAR_HEIGHT,
+				height: isElectron() ? APP_BAR_HEIGHT : `calc(${APP_BAR_HEIGHT}px + env(safe-area-inset-top))`,
+				paddingTop: isElectron() ? undefined : "env(safe-area-inset-top)",
 				// Make entire bar draggable on Electron (title bar replacement)
 				// @ts-expect-error -- vendor-prefixed CSS property
 				WebkitAppRegion: isElectron() ? "drag" : undefined,
@@ -52,7 +53,7 @@ export function AppBar() {
 							<Button
 								variant="ghost"
 								size="icon"
-								className="size-7 shrink-0"
+								className="size-10 shrink-0 md:size-7"
 								aria-label={t(projectToolsOpen ? "sidebar.closeProjectTools" : "sidebar.projectTools")}
 								onClick={() => {
 									if (projectToolsOpen) {

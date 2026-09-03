@@ -103,6 +103,7 @@ function AttachButton({ disabled }: { disabled?: boolean }) {
 	const attachments = usePromptInputAttachments()
 	return (
 		<PromptInputButton
+			className="size-10 sm:size-8"
 			tooltip="Attach files"
 			onClick={() => attachments.openFileDialog()}
 			disabled={disabled}
@@ -626,7 +627,7 @@ export function ChatView({
 				<Conversation key={agent.sessionId} className="h-full">
 					<ScrollOnLoad loading={loading} sessionId={agent.sessionId} />
 					<ScrollBridge scrollRef={scrollRef} />
-					<ConversationContent className="gap-10 px-0 py-2 sm:px-4 sm:py-6">
+					<ConversationContent className="gap-8 px-3 py-3 sm:gap-10 sm:px-4 sm:py-6">
 						<div className={cn(contentWidthClass, "space-y-10")}>
 							{/* Load earlier messages button */}
 							{hasEarlierMessages && (
@@ -1327,7 +1328,7 @@ function ChatInputSection({
 
 	return (
 		<>
-			<div className="min-w-0 px-0 pb-0 pt-1 sm:px-4 sm:pb-4 sm:pt-2">
+			<div className="chat-input-safe-area min-w-0 px-2 pt-1 sm:px-4 sm:pt-2">
 				<div className={inputWidthClass}>
 					{/* Session task list — collapsible todo progress */}
 					<SessionTaskList sessionId={agent.sessionId} />
@@ -1467,6 +1468,7 @@ function ChatInputSection({
 											/>
 										</PromptInputTools>
 										<PromptInputSubmit
+											className="min-h-10 min-w-10 sm:min-h-8 sm:min-w-8"
 											disabled={!canSend}
 											status={isWorking ? "streaming" : undefined}
 											onStop={handleStop}

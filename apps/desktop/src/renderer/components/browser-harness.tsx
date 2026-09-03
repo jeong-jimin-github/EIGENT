@@ -1,8 +1,9 @@
 import { Button } from "@palot/ui/components/button"
 import { Globe2Icon, MonitorSmartphoneIcon, PanelRightCloseIcon } from "lucide-react"
-import { useAtomValue } from "jotai"
+import { useAtom, useAtomValue } from "jotai"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { activePreviewContextAtom, sessionDiffFamily } from "../atoms/ui"
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react"
+import { activePreviewContextAtom, rightPanelWidthPercentAtom, sessionDiffFamily } from "../atoms/ui"
 import {
 	findWorkspacePreviewEntry,
 	hasWebPreviewChanges,
@@ -35,7 +36,55 @@ export function BrowserHarness() {
 	const [workspaceEntryPath, setWorkspaceEntryPath] = useState<string | null>(null)
 	const [mode, setMode] = useState<PreviewMode | null>(null)
 	const dismissedRef = useRef(false)
+	const [storedPanelWidth, setStoredPanelWidth] = useAtom(rightPanelWidthPercentAtom)
+	const clampPanelWidth = useCallback((value: number) => Math.min(72, Math.max(28, value)), [])
+	const [panelWidth, setPanelWidth] = useState(() => clampPanelWidth(storedPanelWidth))
 	const deviceAvailable = Boolean(loopbackUrl || hasWorkspaceWebChanges || workspaceEntryPath)
+
+	useEffect(() => {
+		setPanelWidth(clampPanelWidth(storedPanelWidth))
+	}, [clampPanelWidth, storedPanelWidth])
+
+	const beginResize = useCallback(
+		(event: ReactPointerEvent<HTMLDivElement>) => {
+			if (event.button !== 0) return
+			event.preventDefault()
+			let finalWidth = panelWidth
+			const previousCursor = document.body.style.cursor
+			const previousUserSelect = document.body.style.userSelect
+			document.body.style.cursor = "col-resize"
+			document.body.style.userSelect = "none"
+
+			const onPointerMove = (moveEvent: PointerEvent) => {
+				finalWidth = clampPanelWidth(((window.innerWidth - moveEvent.clientX) / window.innerWidth) * 100)
+				setPanelWidth(finalWidth)
+			}
+			const finish = () => {
+				window.removeEventListener("pointermove", onPointerMove)
+				window.removeEventListener("pointerup", finish)
+				window.removeEventListener("pointercancel", finish)
+				document.body.style.cursor = previousCursor
+				document.body.style.userSelect = previousUserSelect
+				setStoredPanelWidth(finalWidth)
+			}
+
+			window.addEventListener("pointermove", onPointerMove)
+			window.addEventListener("pointerup", finish)
+			window.addEventListener("pointercancel", finish)
+		},
+		[clampPanelWidth, panelWidth, setStoredPanelWidth],
+	)
+
+	const resizeWithKeyboard = useCallback(
+		(event: ReactKeyboardEvent<HTMLDivElement>) => {
+			if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+			event.preventDefault()
+			const next = clampPanelWidth(panelWidth + (event.key === "ArrowLeft" ? 2 : -2))
+			setPanelWidth(next)
+			setStoredPanelWidth(next)
+		},
+		[clampPanelWidth, panelWidth, setStoredPanelWidth],
+	)
 
 	useEffect(() => {
 		dismissedRef.current = false
@@ -82,9 +131,16 @@ export function BrowserHarness() {
 	}, [hasWorkspaceWebChanges, previewContext])
 
 	useEffect(() => {
-		void checkStatus()
-		const timer = window.setInterval(() => void checkStatus(), 2_000)
-		return () => window.clearInterval(timer)
+		const checkWhenVisible = () => {
+			if (!document.hidden) void checkStatus()
+		}
+		checkWhenVisible()
+		const timer = window.setInterval(checkWhenVisible, 5_000)
+		document.addEventListener("visibilitychange", checkWhenVisible)
+		return () => {
+			window.clearInterval(timer)
+			document.removeEventListener("visibilitychange", checkWhenVisible)
+		}
 	}, [checkStatus])
 
 	useEffect(() => {
@@ -107,7 +163,7 @@ export function BrowserHarness() {
 				type="button"
 				variant="outline"
 				size="icon"
-				className="fixed bottom-4 right-4 z-50 shadow-md"
+				className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-50 size-10 shadow-md lg:size-9"
 				title="Show preview panel"
 				onClick={() => {
 					dismissedRef.current = false
@@ -125,12 +181,26 @@ export function BrowserHarness() {
 	}
 
 	return (
-		<aside className="relative z-20 hidden h-full w-[45vw] min-w-[420px] max-w-[760px] shrink-0 border-l border-border bg-background lg:block">
+		<aside
+			className="fixed inset-0 z-[70] h-dvh w-full overflow-hidden bg-background lg:relative lg:inset-auto lg:z-20 lg:h-full lg:w-[var(--preview-panel-width)] lg:min-w-[320px] lg:max-w-[72vw] lg:shrink-0 lg:border-l lg:border-border"
+			style={{ "--preview-panel-width": `${panelWidth}%` } as CSSProperties}
+		>
+			<div
+				role="separator"
+				aria-label="Resize preview panel"
+				aria-orientation="vertical"
+				tabIndex={0}
+				onPointerDown={beginResize}
+				onKeyDown={resizeWithKeyboard}
+				className="absolute inset-y-0 left-0 z-40 hidden w-3 cursor-col-resize touch-none items-center justify-center outline-none focus-visible:bg-primary/10 lg:flex"
+			>
+				<div className="h-full w-px bg-border" />
+			</div>
 			<Button
 				type="button"
 				variant="ghost"
 				size="icon-sm"
-				className="absolute right-2 top-1 z-30 bg-background/80 backdrop-blur"
+				className="absolute right-2 top-[max(0.25rem,env(safe-area-inset-top))] z-30 size-10 bg-background/80 backdrop-blur lg:top-1 lg:size-8"
 				title="Hide preview panel"
 				onClick={() => {
 					dismissedRef.current = true
