@@ -7,14 +7,12 @@ import {
 } from "@tanstack/react-router"
 import { lazy, Suspense } from "react"
 import { AutomationDetail } from "./components/automations/automation-detail"
-import { AutomationRunDetail } from "./components/automations/automation-run-detail"
 import { AutomationsPage } from "./components/automations/automations-page"
 import { InboxEmptyState } from "./components/automations/inbox-empty-state"
 import { ErrorPage } from "./components/error-page"
 import { NewChat } from "./components/new-chat"
 import { NotFoundPage } from "./components/not-found-page"
 import { RootLayout } from "./components/root-layout"
-import { SessionRoute } from "./components/session-route"
 import { AboutSettings } from "./components/settings/about-settings"
 import { GeneralSettings } from "./components/settings/general-settings"
 import { NotificationSettings } from "./components/settings/notification-settings"
@@ -25,9 +23,43 @@ import { SetupSettings } from "./components/settings/setup-settings"
 import { WorktreeSettings } from "./components/settings/worktree-settings"
 import { SidebarLayout } from "./components/sidebar-layout"
 
+const LazySessionRoute = lazy(() =>
+	import("./components/session-route").then(({ SessionRoute }) => ({ default: SessionRoute })),
+)
+
+const LazyAutomationRunDetail = lazy(() =>
+	import("./components/automations/automation-run-detail").then(({ AutomationRunDetail }) => ({
+		default: AutomationRunDetail,
+	})),
+)
+
 const LazyProjectTools = lazy(() =>
 	import("./components/project-tools").then(({ ProjectTools }) => ({ default: ProjectTools })),
 )
+
+function SessionRouteComponent() {
+	return (
+		<Suspense fallback={<RouteLoading label="Loading session…" />}>
+			<LazySessionRoute />
+		</Suspense>
+	)
+}
+
+function AutomationRunDetailRoute() {
+	return (
+		<Suspense fallback={<RouteLoading label="Loading automation run…" />}>
+			<LazyAutomationRunDetail />
+		</Suspense>
+	)
+}
+
+function RouteLoading({ label }: { label: string }) {
+	return (
+		<div className="flex h-full min-h-0 items-center justify-center text-sm text-muted-foreground">
+			{label}
+		</div>
+	)
+}
 
 function ProjectToolsRoute() {
 	return (
@@ -79,7 +111,7 @@ const projectIndexRoute = createRoute({
 const sessionRoute = createRoute({
 	getParentRoute: () => projectRoute,
 	path: "session/$sessionId",
-	component: SessionRoute,
+	component: SessionRouteComponent,
 })
 
 const projectToolsRoute = createRoute({
@@ -170,7 +202,7 @@ const automationDetailIndexRoute = createRoute({
 const automationRunRoute = createRoute({
 	getParentRoute: () => automationDetailRoute,
 	path: "runs/$runId",
-	component: AutomationRunDetail,
+	component: AutomationRunDetailRoute,
 })
 
 const routeTree = rootRoute.addChildren([
