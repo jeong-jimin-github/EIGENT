@@ -3,6 +3,10 @@ import { browserRuntime } from "../services/browser-runtime"
 import { desktopRuntime } from "../services/desktop-runtime"
 import { listManagedProcesses } from "../services/process-manager"
 import { providerRegistry } from "../services/provider-registry"
+import {
+	browserRuntimeReadyForRequests,
+	desktopRuntimeReadyForRequests,
+} from "../services/runtime-readiness"
 
 function now() {
 	return { status: "ok" as const, timestamp: Date.now() }
@@ -59,12 +63,12 @@ const app = new Hono()
 				components: {
 					browser:
 						browser.status === "fulfilled"
-							? { ok: browser.value.connected, state: browser.value.state }
+							? { ok: browserRuntimeReadyForRequests(browser.value), state: browser.value.state }
 							: { ok: false, state: "error" },
 					desktop:
 						desktop.status === "fulfilled"
 							? {
-									ok: desktop.value.ready || !desktop.value.enabled,
+									ok: desktopRuntimeReadyForRequests(desktop.value),
 									state: desktop.value.state,
 								}
 							: { ok: false, state: "error" },

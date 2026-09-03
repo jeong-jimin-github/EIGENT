@@ -2,7 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { DesktopRuntime, type DesktopRuntimeConfig, desktopIdleTimeoutMs } from "./desktop-runtime"
+import {
+	DesktopRuntime,
+	type DesktopRuntimeConfig,
+	desktopIdleTimeoutMs,
+	reconcileDesktopRuntimeState,
+} from "./desktop-runtime"
 
 const temporaryDirectories: string[] = []
 
@@ -129,5 +134,24 @@ describe("DesktopRuntime low-memory lifecycle", () => {
 		release()
 		await new Promise((resolve) => setTimeout(resolve, 50))
 		expect(killed).toEqual(["SIGTERM"])
+	})
+})
+
+describe("DesktopRuntime status reconciliation", () => {
+	test("reports a previously ready runtime as errored after X or VNC disconnects", () => {
+		expect(reconcileDesktopRuntimeState("ready", true, false, true)).toBe("error")
+		expect(reconcileDesktopRuntimeState("ready", true, true, false)).toBe("error")
+		expect(reconcileDesktopRuntimeState("ready", true, false, false)).toBe("error")
+	})
+
+	test("preserves intentional idle and startup states while disconnected", () => {
+		expect(reconcileDesktopRuntimeState("idle", true, false, false)).toBe("idle")
+		expect(reconcileDesktopRuntimeState("starting", true, false, false)).toBe("starting")
+		expect(reconcileDesktopRuntimeState("error", true, false, false)).toBe("error")
+	})
+
+	test("moves a recovered runtime back to ready and unsupported hosts to unsupported", () => {
+		expect(reconcileDesktopRuntimeState("error", true, true, true)).toBe("ready")
+		expect(reconcileDesktopRuntimeState("idle", false, false, false)).toBe("unsupported")
 	})
 })

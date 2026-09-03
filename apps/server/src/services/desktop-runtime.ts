@@ -9,6 +9,18 @@ import path from "node:path"
 export type DesktopRuntimeState = "idle" | "starting" | "ready" | "error" | "unsupported"
 export type DesktopControlOwner = "agent" | "user"
 
+export function reconcileDesktopRuntimeState(
+	current: DesktopRuntimeState,
+	supported: boolean,
+	xReady: boolean,
+	vncReady: boolean,
+): DesktopRuntimeState {
+	if (!supported) return "unsupported"
+	if (xReady && vncReady) return current === "starting" ? "starting" : "ready"
+	if (current === "ready") return "error"
+	return current
+}
+
 export interface DesktopRuntimeConfig {
 	enabled: boolean
 	managed: boolean
@@ -452,8 +464,15 @@ export class DesktopRuntime {
 			? await tcpAvailable(this.config.vncHost, this.config.vncPort)
 			: false
 		const ready = supported && xReady && vncReady
-		if (ready && this.state !== "starting") this.state = "ready"
-		if (!supported) this.state = "unsupported"
+		const nextState = reconcileDesktopRuntimeState(this.state, supported, xReady, vncReady)
+		if (nextState === "ready") {
+			this.lastError = undefined
+		} else if (nextState === "error" && this.state === "ready") {
+			this.lastError = !xReady
+				? `Desktop X display disconnected at ${this.config.display}`
+				: `Desktop VNC disconnected at ${this.config.vncHost}:${this.config.vncPort}`
+		}
+		this.state = nextState
 		return {
 			...this.config,
 			state: this.state,
