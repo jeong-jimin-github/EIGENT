@@ -122,6 +122,33 @@ describe("browser runtime", () => {
 		}
 	})
 
+	test("drops stale managed PIDs from status", async () => {
+		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-stale-pid-"))
+		try {
+			const runtime = new BrowserRuntime(
+				{
+					profileDir: path.join(root, "profile"),
+					downloadDir: path.join(root, "downloads"),
+					uploadDir: path.join(root, "uploads"),
+					debugPort: 19623,
+					workerPort: 19624,
+					headless: true,
+					startupTimeoutMs: 30,
+				},
+				() => process.execPath,
+				() => {},
+				() => false,
+			)
+			Object.assign(runtime, { spawnedPid: 12345, workerPid: 23456 })
+
+			const status = await runtime.status()
+			expect(status.spawnedPid).toBeUndefined()
+			expect(status.workerPid).toBeUndefined()
+		} finally {
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
+
 	test("cleans up only processes launched by a failed startup attempt", async () => {
 		const root = mkdtempSync(path.join(os.tmpdir(), "eigent-browser-startup-cleanup-"))
 		const terminated: number[] = []

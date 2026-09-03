@@ -160,6 +160,15 @@ export function discoverBrowserExecutable(explicit?: string): string | undefined
 }
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+function processIsRunning(pid: number): boolean {
+	try {
+		process.kill(pid, 0)
+		return true
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "EPERM"
+	}
+}
+
 function terminateDetachedProcess(pid: number): void {
 	try {
 		if (process.platform === "win32") {
@@ -190,6 +199,7 @@ export class BrowserRuntime {
 			explicit?: string,
 		) => string | undefined = discoverBrowserExecutable,
 		private readonly terminateProcess: (pid: number) => void = terminateDetachedProcess,
+		private readonly isProcessRunning: (pid: number) => boolean = processIsRunning,
 	) {
 		for (const dir of [config.profileDir, config.downloadDir, config.uploadDir]) {
 			if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -410,6 +420,12 @@ export class BrowserRuntime {
 
 	async status(): Promise<BrowserRuntimeStatus> {
 		const [cdp, worker] = await Promise.all([this.cdpAvailable(), this.workerAvailable()])
+		if (this.spawnedPid !== undefined && !this.isProcessRunning(this.spawnedPid)) {
+			this.spawnedPid = undefined
+		}
+		if (this.workerPid !== undefined && !this.isProcessRunning(this.workerPid)) {
+			this.workerPid = undefined
+		}
 		let tabs: BrowserTabInfo[] = []
 		if (worker) {
 			try {
