@@ -12,20 +12,40 @@ export interface LoopbackPreviewSession {
 	path: string
 }
 
+interface SessionPreviewBase {
+	sessionId: string
+	root: string
+	revision: number
+	activationId: string
+	updatedAt: number
+}
+
+export interface WorkspaceSessionPreview extends SessionPreviewBase {
+	kind: "workspace"
+	path: string
+}
+
+export interface LoopbackSessionPreview extends SessionPreviewBase {
+	kind: "loopback"
+	url: string
+}
+
+export type SessionPreviewState = WorkspaceSessionPreview | LoopbackSessionPreview
+
 export async function createWorkspacePreviewSession(
 	root: string,
 	changedFiles: string[],
+	entryPath?: string,
 ): Promise<WorkspacePreviewSession> {
 	const response = await fetch("/api/workspace/preview-token", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ root, changedFiles }),
+		body: JSON.stringify({ root, changedFiles, entryPath }),
 	})
 	const data = (await response.json()) as WorkspacePreviewSession & { error?: string }
 	if (!response.ok) throw new Error(data.error ?? `${response.status} ${response.statusText}`)
 	return data
 }
-
 
 export async function findWorkspacePreviewEntry(root: string): Promise<string | null> {
 	const params = new URLSearchParams({ root })
@@ -55,12 +75,18 @@ export function isLoopbackPreviewUrl(value: string): boolean {
 	}
 }
 
-export async function createLoopbackPreviewSession(url: string): Promise<LoopbackPreviewSession> {
-	const response = await fetch("/api/browser/device-preview-token", {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ url }),
-	})
+export async function createLoopbackPreviewSession(
+	url: string,
+	sessionId?: string,
+): Promise<LoopbackPreviewSession> {
+	const response = await fetch(
+		sessionId ? "/api/workspace/session-preview/loopback-token" : "/api/browser/device-preview-token",
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(sessionId ? { sessionId } : { url }),
+		},
+	)
 	const data = (await response.json()) as LoopbackPreviewSession & { error?: string }
 	if (!response.ok) throw new Error(data.error ?? `${response.status} ${response.statusText}`)
 	return data
@@ -77,6 +103,30 @@ export function loopbackPreviewUrl(token: string, initialPath: string, revision:
 	return `/local-preview/${token}/${encodedPath}${parsed.search}`
 }
 
+export async function fetchSessionPreview(
+	sessionId: string,
+	signal?: AbortSignal,
+): Promise<SessionPreviewState | null> {
+	const params = new URLSearchParams({ sessionId })
+	const response = await fetch(`/api/workspace/session-preview?${params}`, {
+		cache: "no-store",
+		signal,
+	})
+	const data = (await response.json()) as { preview?: SessionPreviewState | null; error?: string }
+	if (!response.ok) throw new Error(data.error ?? "Failed to read session preview state")
+	return data.preview ?? null
+}
+
+export async function requestSessionPreviewReload(sessionId: string): Promise<SessionPreviewState> {
+	const response = await fetch("/api/workspace/session-preview/reload", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ sessionId }),
+	})
+	const data = (await response.json()) as SessionPreviewState & { error?: string }
+	if (!response.ok) throw new Error(data.error ?? "Failed to reload session preview")
+	return data
+}
 
 export function isHtmlPreviewPath(file: string): boolean {
 	return /\.html?$/i.test(file)
@@ -105,6 +155,7 @@ export function webPreviewRevision(diffs: FileDiff[]): string {
 	}
 	return (hash >>> 0).toString(36)
 }
+
 export interface DevicePreviewReloadState {
 	root: string
 	revision: number
@@ -134,4 +185,3 @@ export async function requestDevicePreviewReload(root: string): Promise<DevicePr
 	if (!response.ok) throw new Error(data.error ?? "Failed to reload Device Preview")
 	return data
 }
-

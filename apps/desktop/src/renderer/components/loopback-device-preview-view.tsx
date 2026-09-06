@@ -6,15 +6,17 @@ import {
 	fetchDevicePreviewReloadState,
 	loopbackPreviewUrl,
 	requestDevicePreviewReload,
+	requestSessionPreviewReload,
 } from "../services/device-preview"
 
 interface LoopbackDevicePreviewViewProps {
 	url: string
 	root: string
 	revision: string
+	sessionId?: string
 }
 
-export function LoopbackDevicePreviewView({ url, root, revision }: LoopbackDevicePreviewViewProps) {
+export function LoopbackDevicePreviewView({ url, root, revision, sessionId }: LoopbackDevicePreviewViewProps) {
 	const [token, setToken] = useState<string | null>(null)
 	const [initialPath, setInitialPath] = useState("/")
 	const [error, setError] = useState<string | null>(null)
@@ -22,6 +24,10 @@ export function LoopbackDevicePreviewView({ url, root, revision }: LoopbackDevic
 	const [remoteRevision, setRemoteRevision] = useState(0)
 
 	useEffect(() => {
+		if (sessionId) {
+			setRemoteRevision(0)
+			return
+		}
 		const controller = new AbortController()
 		let active = true
 		const poll = async () => {
@@ -39,13 +45,13 @@ export function LoopbackDevicePreviewView({ url, root, revision }: LoopbackDevic
 			controller.abort()
 			window.clearInterval(timer)
 		}
-	}, [root])
+	}, [root, sessionId])
 
 	useEffect(() => {
 		let cancelled = false
 		setToken(null)
 		setError(null)
-		void createLoopbackPreviewSession(url)
+		void createLoopbackPreviewSession(url, sessionId)
 			.then((session) => {
 				if (cancelled) return
 				setToken(session.token)
@@ -57,7 +63,7 @@ export function LoopbackDevicePreviewView({ url, root, revision }: LoopbackDevic
 		return () => {
 			cancelled = true
 		}
-	}, [url])
+	}, [url, sessionId])
 
 	const src = useMemo(
 		() =>
@@ -78,9 +84,10 @@ export function LoopbackDevicePreviewView({ url, root, revision }: LoopbackDevic
 					size="icon-sm"
 					title="Reload device preview"
 					onClick={() => {
-						void requestDevicePreviewReload(root)
-							.then((state) => setRemoteRevision(state.revision))
-							.catch(() => setManualRevision((value) => value + 1))
+						const reload = sessionId
+							? requestSessionPreviewReload(sessionId).then((state) => setRemoteRevision(state.revision))
+							: requestDevicePreviewReload(root).then((state) => setRemoteRevision(state.revision))
+						void reload.catch(() => setManualRevision((value) => value + 1))
 					}}
 				>
 					<RefreshCwIcon className="size-3.5" />

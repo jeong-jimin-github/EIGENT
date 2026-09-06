@@ -95,10 +95,29 @@ export async function findWorkspacePreviewEntry(root: string, changedFiles: stri
 	return htmlCandidates[0]?.name ?? null
 }
 
-export async function createWorkspacePreviewSession(root: string, changedFiles: string[] = []) {
+async function validateExplicitPreviewEntry(root: string, entryPath: string): Promise<string> {
+	const normalized = normalizeRelativePath(entryPath)
+	if (!normalized || entryPath.startsWith("/") || /^[A-Za-z]:[\\/]/.test(entryPath)) {
+		throw new Error("preview entryPath must be workspace-relative")
+	}
+	if (!/\.html?$/i.test(normalized)) throw new Error("preview entryPath must be an HTML file")
+	const target = resolveWorkspaceFilePath(root, normalized)
+	const info = await stat(target).catch(() => null)
+	if (!info?.isFile()) throw new Error("workspace preview HTML file was not found")
+	return normalized
+}
+
+export async function createWorkspacePreviewSession(
+	root: string,
+	changedFiles: string[] = [],
+	explicitEntryPath?: string,
+) {
 	cleanupExpired()
 	const normalizedRoot = resolveWorkspaceScope(root, "workspace preview root")
-	const entryPath = await findWorkspacePreviewEntry(normalizedRoot, changedFiles)
+	const entryPath =
+		explicitEntryPath === undefined
+			? await findWorkspacePreviewEntry(normalizedRoot, changedFiles)
+			: await validateExplicitPreviewEntry(normalizedRoot, explicitEntryPath)
 	const token = randomBytes(24).toString("base64url")
 	const expiresAt = Date.now() + PREVIEW_TTL_MS
 	previewSessions.set(token, { root: normalizedRoot, expiresAt, entryPath })

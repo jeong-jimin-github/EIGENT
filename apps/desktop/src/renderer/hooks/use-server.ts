@@ -136,7 +136,7 @@ export function useAgentActions() {
 				partsCount: parts.length,
 			})
 			try {
-				const system = await workspaceAgentSystemPrompt(directory, text)
+				const system = await workspaceAgentSystemPrompt(directory, text, sessionId)
 				const result = await client.session.promptAsync({
 					sessionID: sessionId,
 					parts,

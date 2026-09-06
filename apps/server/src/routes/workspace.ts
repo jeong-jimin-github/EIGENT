@@ -3,6 +3,13 @@ import {
 	getDevicePreviewReloadState,
 	requestDevicePreviewReload,
 } from "../services/device-preview-control"
+import { createLoopbackPreviewSession } from "../services/loopback-preview"
+import {
+	clearSessionPreview,
+	getSessionPreview,
+	reloadSessionPreview,
+	setSessionPreview,
+} from "../services/session-preview"
 import { resolveWorkspaceScope } from "../services/workspace-policy"
 import {
 	createWorkspacePreviewSession,
@@ -40,13 +47,97 @@ const app = new Hono()
 		}
 	})
 	.post("/preview-token", async (c) => {
-		const body = (await c.req.json()) as { root?: string; changedFiles?: string[] }
+		const body = (await c.req.json()) as {
+			root?: string
+			changedFiles?: string[]
+			entryPath?: string
+		}
 		if (typeof body.root !== "string") return c.json({ error: "root is required" }, 400)
 		try {
 			const changedFiles = Array.isArray(body.changedFiles)
 				? body.changedFiles.filter((file): file is string => typeof file === "string").slice(0, 500)
 				: []
-			return c.json(await createWorkspacePreviewSession(body.root, changedFiles), 201)
+			const entryPath = typeof body.entryPath === "string" ? body.entryPath : undefined
+			return c.json(await createWorkspacePreviewSession(body.root, changedFiles, entryPath), 201)
+		} catch (err) {
+			return c.json({ error: message(err) }, 400)
+		}
+	})
+	.get("/session-preview", (c) => {
+		const sessionId = c.req.query("sessionId")
+		if (!sessionId) return c.json({ error: "sessionId is required" }, 400)
+		try {
+			return c.json({ preview: getSessionPreview(sessionId) }, 200)
+		} catch (err) {
+			return c.json({ error: message(err) }, 400)
+		}
+	})
+	.post("/session-preview", async (c) => {
+		const body = (await c.req.json()) as {
+			sessionId?: string
+			root?: string
+			kind?: "workspace" | "loopback"
+			path?: string
+			url?: string
+		}
+		if (typeof body.sessionId !== "string" || typeof body.root !== "string") {
+			return c.json({ error: "sessionId and root are required" }, 400)
+		}
+		try {
+			if (body.kind === "workspace" && typeof body.path === "string") {
+				return c.json(
+					await setSessionPreview({
+						sessionId: body.sessionId,
+						root: body.root,
+						kind: "workspace",
+						path: body.path,
+					}),
+					200,
+				)
+			}
+			if (body.kind === "loopback" && typeof body.url === "string") {
+				return c.json(
+					await setSessionPreview({
+						sessionId: body.sessionId,
+						root: body.root,
+						kind: "loopback",
+						url: body.url,
+					}),
+					200,
+				)
+			}
+			return c.json({ error: "kind and matching path/url are required" }, 400)
+		} catch (err) {
+			return c.json({ error: message(err) }, 400)
+		}
+	})
+	.post("/session-preview/reload", async (c) => {
+		const body = (await c.req.json()) as { sessionId?: string }
+		if (typeof body.sessionId !== "string") return c.json({ error: "sessionId is required" }, 400)
+		try {
+			return c.json(reloadSessionPreview(body.sessionId), 200)
+		} catch (err) {
+			return c.json({ error: message(err) }, 400)
+		}
+	})
+	.post("/session-preview/loopback-token", async (c) => {
+		const body = (await c.req.json()) as { sessionId?: string }
+		if (typeof body.sessionId !== "string") return c.json({ error: "sessionId is required" }, 400)
+		try {
+			const preview = getSessionPreview(body.sessionId)
+			if (!preview || preview.kind !== "loopback") {
+				return c.json({ error: "session loopback preview is not active" }, 404)
+			}
+			return c.json(createLoopbackPreviewSession(preview.url), 201)
+		} catch (err) {
+			return c.json({ error: message(err) }, 400)
+		}
+	})
+	.delete("/session-preview", async (c) => {
+		const body = (await c.req.json()) as { sessionId?: string }
+		if (typeof body.sessionId !== "string") return c.json({ error: "sessionId is required" }, 400)
+		try {
+			return c.json({ cleared: clearSessionPreview(body.sessionId) }, 200)
 		} catch (err) {
 			return c.json({ error: message(err) }, 400)
 		}

@@ -1,19 +1,11 @@
 import { Button } from "@palot/ui/components/button"
-import { Globe2Icon, MonitorSmartphoneIcon, PanelRightCloseIcon } from "lucide-react"
+import { MonitorSmartphoneIcon, PanelRightCloseIcon } from "lucide-react"
 import { useAtom, useAtomValue } from "jotai"
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react"
-import { activePreviewContextAtom, rightPanelWidthPercentAtom, sessionDiffFamily } from "../atoms/ui"
-import {
-	findWorkspacePreviewEntry,
-	hasWebPreviewChanges,
-	isLoopbackPreviewUrl,
-	webPreviewChangedFiles,
-	webPreviewRevision,
-} from "../services/device-preview"
-const BrowserLiveView = lazy(() =>
-	import("./browser-live-view").then((module) => ({ default: module.BrowserLiveView })),
-)
+import { activePreviewContextAtom, rightPanelWidthPercentAtom } from "../atoms/ui"
+import { fetchSessionPreview, type SessionPreviewState } from "../services/device-preview"
+
 const DevicePreviewView = lazy(() =>
 	import("./device-preview-view").then((module) => ({ default: module.DevicePreviewView })),
 )
@@ -23,31 +15,14 @@ const LoopbackDevicePreviewView = lazy(() =>
 	})),
 )
 
-interface BrowserStatus {
-	connected: boolean
-	tabs?: Array<{ id: string; url: string; title: string }>
-}
-
-type PreviewMode = "device" | "cloud"
-
 export function BrowserHarness() {
 	const previewContext = useAtomValue(activePreviewContextAtom)
-	const sessionDiffs = useAtomValue(
-		sessionDiffFamily(previewContext?.sessionId ?? "__eigent-no-preview-session__"),
-	)
-	const hasWorkspaceWebChanges = Boolean(previewContext && hasWebPreviewChanges(sessionDiffs))
-	const changedFiles = useMemo(() => webPreviewChangedFiles(sessionDiffs), [sessionDiffs])
-	const revision = useMemo(() => webPreviewRevision(sessionDiffs), [sessionDiffs])
-
-	const [cloudAvailable, setCloudAvailable] = useState(false)
-	const [loopbackUrl, setLoopbackUrl] = useState<string | null>(null)
-	const [workspaceEntryPath, setWorkspaceEntryPath] = useState<string | null>(null)
-	const [mode, setMode] = useState<PreviewMode | null>(null)
-	const dismissedRef = useRef(false)
+	const [preview, setPreview] = useState<SessionPreviewState | null>(null)
+	const [visible, setVisible] = useState(false)
+	const activationRef = useRef<string | null>(null)
 	const [storedPanelWidth, setStoredPanelWidth] = useAtom(rightPanelWidthPercentAtom)
 	const clampPanelWidth = useCallback((value: number) => Math.min(72, Math.max(28, value)), [])
 	const [panelWidth, setPanelWidth] = useState(() => clampPanelWidth(storedPanelWidth))
-	const deviceAvailable = Boolean(loopbackUrl || hasWorkspaceWebChanges || workspaceEntryPath)
 
 	useEffect(() => {
 		setPanelWidth(clampPanelWidth(storedPanelWidth))
@@ -95,77 +70,52 @@ export function BrowserHarness() {
 	)
 
 	useEffect(() => {
-		dismissedRef.current = false
-		setMode(null)
-		setWorkspaceEntryPath(null)
-	}, [previewContext?.sessionId])
+		const sessionId = previewContext?.sessionId
+		activationRef.current = null
+		setPreview(null)
+		setVisible(false)
+		if (!sessionId) return
 
-	useEffect(() => {
-		if (deviceAvailable && !dismissedRef.current) setMode("device")
-	}, [deviceAvailable])
-
-	const checkStatus = useCallback(async () => {
-		let nextWorkspaceEntryPath: string | null = null
-		if (previewContext) {
+		let active = true
+		let controller: AbortController | null = null
+		const poll = async () => {
+			if (document.hidden) return
+			controller?.abort()
+			controller = new AbortController()
 			try {
-				nextWorkspaceEntryPath = await findWorkspacePreviewEntry(previewContext.directory)
-			} catch {
-				nextWorkspaceEntryPath = null
+				const next = await fetchSessionPreview(sessionId, controller.signal)
+				if (!active) return
+				setPreview(next)
+				if (!next) {
+					activationRef.current = null
+								setVisible(false)
+					return
+				}
+				if (activationRef.current !== next.activationId) {
+					activationRef.current = next.activationId
+								setVisible(true)
+				}
+			} catch (error) {
+				if (error instanceof DOMException && error.name === "AbortError") return
+				// Keep the last known preview visible while the server reconnects.
 			}
 		}
-		setWorkspaceEntryPath(nextWorkspaceEntryPath)
-
-		try {
-			const response = await fetch("/api/browser/status", { cache: "no-store" })
-			if (!response.ok) return
-			const status = (await response.json()) as BrowserStatus
-			const tabs = status.tabs ?? []
-			const nextCloudAvailable = Boolean(status.connected && tabs.length > 0)
-			const nextLoopbackUrl = tabs.find((tab) => isLoopbackPreviewUrl(tab.url))?.url ?? null
-			setCloudAvailable(nextCloudAvailable)
-			setLoopbackUrl(nextLoopbackUrl)
-			if (
-				!nextLoopbackUrl &&
-				!hasWorkspaceWebChanges &&
-				!nextWorkspaceEntryPath &&
-				nextCloudAvailable &&
-				!dismissedRef.current
-			) {
-				setMode("cloud")
-			}
-		} catch {
-			// The cloud browser runtime is optional. Keep the chat usable while it is offline.
-		}
-	}, [hasWorkspaceWebChanges, previewContext])
-
-	useEffect(() => {
 		const checkWhenVisible = () => {
-			if (!document.hidden) void checkStatus()
+			if (!document.hidden) void poll()
 		}
-		checkWhenVisible()
-		const timer = window.setInterval(checkWhenVisible, 5_000)
+		void poll()
+		const timer = window.setInterval(checkWhenVisible, 1_000)
 		document.addEventListener("visibilitychange", checkWhenVisible)
 		return () => {
+			active = false
+			controller?.abort()
 			window.clearInterval(timer)
 			document.removeEventListener("visibilitychange", checkWhenVisible)
 		}
-	}, [checkStatus])
+	}, [previewContext?.sessionId])
 
-	useEffect(() => {
-		if (mode === "device" && !deviceAvailable) {
-			setMode(cloudAvailable && !dismissedRef.current ? "cloud" : null)
-		}
-	}, [cloudAvailable, deviceAvailable, mode])
-
-	const preferredMode: PreviewMode | null = deviceAvailable
-		? "device"
-		: cloudAvailable
-			? "cloud"
-			: null
-
-	if (!mode) {
-		if (!preferredMode) return null
-		const isDevice = preferredMode === "device"
+	if (!visible) {
+		if (!preview) return null
 		return (
 			<Button
 				type="button"
@@ -174,19 +124,16 @@ export function BrowserHarness() {
 				className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-50 size-10 shadow-md lg:size-9"
 				title="Show preview panel"
 				onClick={() => {
-					dismissedRef.current = false
-					setMode(preferredMode)
+								setVisible(true)
 				}}
 			>
-				{isDevice ? (
-					<MonitorSmartphoneIcon aria-hidden="true" className="size-4" />
-				) : (
-					<Globe2Icon aria-hidden="true" className="size-4" />
-				)}
+				<MonitorSmartphoneIcon aria-hidden="true" className="size-4" />
 				<span className="sr-only">Show preview panel</span>
 			</Button>
 		)
 	}
+
+	if (!preview) return null
 
 	return (
 		<aside
@@ -211,8 +158,7 @@ export function BrowserHarness() {
 				className="absolute right-2 top-[max(0.25rem,env(safe-area-inset-top))] z-30 size-10 bg-background/80 backdrop-blur lg:top-1 lg:size-8"
 				title="Hide preview panel"
 				onClick={() => {
-					dismissedRef.current = true
-					setMode(null)
+						setVisible(false)
 				}}
 			>
 				<PanelRightCloseIcon aria-hidden="true" className="size-4" />
@@ -225,20 +171,21 @@ export function BrowserHarness() {
 					</div>
 				}
 			>
-				{mode === "device" && loopbackUrl && previewContext ? (
+				{preview.kind === "loopback" ? (
 					<LoopbackDevicePreviewView
-						url={loopbackUrl}
-						root={previewContext.directory}
-						revision={revision}
-					/>
-				) : mode === "device" && previewContext ? (
-					<DevicePreviewView
-						root={previewContext.directory}
-						changedFiles={changedFiles}
-						revision={revision}
+						url={preview.url}
+						root={preview.root}
+						revision={String(preview.revision)}
+						sessionId={preview.sessionId}
 					/>
 				) : (
-					<BrowserLiveView />
+					<DevicePreviewView
+						root={preview.root}
+						changedFiles={[]}
+						entryPath={preview.path}
+						revision={String(preview.revision)}
+						sessionId={preview.sessionId}
+					/>
 				)}
 			</Suspense>
 		</aside>

@@ -6,15 +6,24 @@ import {
 	devicePreviewUrl,
 	fetchDevicePreviewReloadState,
 	requestDevicePreviewReload,
+	requestSessionPreviewReload,
 } from "../services/device-preview"
 
 interface DevicePreviewViewProps {
 	root: string
 	changedFiles: string[]
 	revision: string
+	entryPath?: string
+	sessionId?: string
 }
 
-export function DevicePreviewView({ root, changedFiles, revision }: DevicePreviewViewProps) {
+export function DevicePreviewView({
+	root,
+	changedFiles,
+	revision,
+	entryPath: explicitEntryPath,
+	sessionId,
+}: DevicePreviewViewProps) {
 	const [token, setToken] = useState<string | null>(null)
 	const [entryPath, setEntryPath] = useState<string | null>(null)
 	const [error, setError] = useState<string | null>(null)
@@ -23,6 +32,10 @@ export function DevicePreviewView({ root, changedFiles, revision }: DevicePrevie
 	const changedFilesKey = changedFiles.join("\u0000")
 
 	useEffect(() => {
+		if (sessionId) {
+			setRemoteRevision(0)
+			return
+		}
 		const controller = new AbortController()
 		let active = true
 		const poll = async () => {
@@ -40,14 +53,14 @@ export function DevicePreviewView({ root, changedFiles, revision }: DevicePrevie
 			controller.abort()
 			window.clearInterval(timer)
 		}
-	}, [root])
+	}, [root, sessionId])
 
 	useEffect(() => {
 		let cancelled = false
 		setToken(null)
 		setEntryPath(null)
 		setError(null)
-		void createWorkspacePreviewSession(root, changedFiles)
+		void createWorkspacePreviewSession(root, changedFiles, explicitEntryPath)
 			.then((session) => {
 				if (cancelled) return
 				if (!session.entryPath) {
@@ -64,7 +77,7 @@ export function DevicePreviewView({ root, changedFiles, revision }: DevicePrevie
 			cancelled = true
 		}
 		// changedFilesKey tracks list contents without depending on array identity.
-	}, [root, changedFilesKey])
+	}, [root, changedFilesKey, explicitEntryPath])
 
 	const src = useMemo(
 		() =>
@@ -80,16 +93,17 @@ export function DevicePreviewView({ root, changedFiles, revision }: DevicePrevie
 				<MonitorSmartphoneIcon className="size-3.5 text-muted-foreground" />
 				<span className="text-xs font-medium">Device Preview</span>
 				<span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
-					{entryPath ?? "Finding page entry…"}
+					{entryPath ?? explicitEntryPath ?? "Finding page entry…"}
 				</span>
 				<Button
 					variant="ghost"
 					size="icon-sm"
 					title="Reload device preview"
 					onClick={() => {
-						void requestDevicePreviewReload(root)
-							.then((state) => setRemoteRevision(state.revision))
-							.catch(() => setManualRevision((value) => value + 1))
+						const reload = sessionId
+							? requestSessionPreviewReload(sessionId).then((state) => setRemoteRevision(state.revision))
+							: requestDevicePreviewReload(root).then((state) => setRemoteRevision(state.revision))
+						void reload.catch(() => setManualRevision((value) => value + 1))
 					}}
 				>
 					<RefreshCwIcon className="size-3.5" />

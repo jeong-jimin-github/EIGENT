@@ -347,7 +347,7 @@ export async function sendUnifiedAgentPrompt(args: {
 
 	try {
 		if (!agentSessionId) {
-			const systemPrompt = await workspaceAgentSystemPrompt(args.workspace, args.message)
+			const systemPrompt = await workspaceAgentSystemPrompt(args.workspace, args.message, args.uiSessionId)
 			const session = await createUnifiedAgentSession({
 				provider: args.runtime.provider,
 				workspace: args.workspace,

@@ -16,9 +16,17 @@ beforeEach(async () => {
 	process.env.EIGENT_DATA_DIR = path.join(root, ".data")
 	await mkdir(path.join(root, "_no-project"), { recursive: true })
 	await writeFile(path.join(root, "_no-project", "calculator.html"), "<h1>Calculator</h1>")
+	await writeFile(path.join(root, "_no-project", "other.html"), "<h1>Other</h1>")
 })
 
 afterEach(async () => {
+	for (const sessionId of ["route-session-a", "route-session-b", "route-loopback"]) {
+		await workspaceRoutes.request("/session-preview", {
+			method: "DELETE",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ sessionId }),
+		})
+	}
 	if (previousRoots === undefined) delete process.env.EIGENT_WORKSPACE_ROOTS
 	else process.env.EIGENT_WORKSPACE_ROOTS = previousRoots
 	if (previousDataDir === undefined) delete process.env.EIGENT_DATA_DIR
@@ -42,7 +50,7 @@ describe("workspace routes", () => {
 		const response = await workspaceRoutes.request("/preview-entry?root=")
 		expect(response.status).toBe(200)
 		const payload = (await response.json()) as { entryPath?: string }
-		expect(payload.entryPath).toBe("calculator.html")
+		expect(["calculator.html", "other.html"]).toContain(payload.entryPath ?? "")
 	})
 
 	test("lets an agent request a Device Preview reload", async () => {
@@ -64,6 +72,76 @@ describe("workspace routes", () => {
 		const afterPayload = (await after.json()) as { revision: number }
 		expect(afterPayload.revision).toBe(payload.revision)
 	})
+
+	test("keeps agent previews isolated by UI session and persists until explicit clear", async () => {
+		for (const [sessionId, previewPath] of [
+			["route-session-a", "calculator.html"],
+			["route-session-b", "other.html"],
+		] as const) {
+			const response = await workspaceRoutes.request("/session-preview", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ sessionId, root: "", kind: "workspace", path: previewPath }),
+			})
+			expect(response.status).toBe(200)
+		}
+
+		const firstRead = await workspaceRoutes.request("/session-preview?sessionId=route-session-a")
+		const firstPayload = (await firstRead.json()) as {
+			preview?: { path?: string; revision: number }
+		}
+		expect(firstPayload.preview?.path).toBe("calculator.html")
+		expect(firstPayload.preview?.revision).toBe(0)
+
+		const reload = await workspaceRoutes.request("/session-preview/reload", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ sessionId: "route-session-a" }),
+		})
+		expect(reload.status).toBe(200)
+		const reloadPayload = (await reload.json()) as { revision: number }
+		expect(reloadPayload.revision).toBe(1)
+
+		const clear = await workspaceRoutes.request("/session-preview", {
+			method: "DELETE",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ sessionId: "route-session-a" }),
+		})
+		expect(clear.status).toBe(200)
+
+		const afterClear = await workspaceRoutes.request("/session-preview?sessionId=route-session-a")
+		const afterClearPayload = (await afterClear.json()) as { preview?: unknown }
+		expect(afterClearPayload.preview).toBeNull()
+
+		const otherSession = await workspaceRoutes.request("/session-preview?sessionId=route-session-b")
+		const otherPayload = (await otherSession.json()) as { preview?: { path?: string } }
+		expect(otherPayload.preview?.path).toBe("other.html")
+	})
+
+	test("issues a loopback proxy token from stored session preview without a managed browser tab", async () => {
+		const show = await workspaceRoutes.request("/session-preview", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({
+				sessionId: "route-loopback",
+				root: "",
+				kind: "loopback",
+				url: "http://127.0.0.1:5173/app",
+			}),
+		})
+		expect(show.status).toBe(200)
+
+		const token = await workspaceRoutes.request("/session-preview/loopback-token", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ sessionId: "route-loopback" }),
+		})
+		expect(token.status).toBe(201)
+		const payload = (await token.json()) as { token?: string; path?: string }
+		expect(payload.token?.length).toBeGreaterThan(10)
+		expect(payload.path).toBe("/app")
+	})
+
 	test("supports No Project file CRUD through the empty logical root", async () => {
 		const listResponse = await workspaceRoutes.request("/list?root=&path=")
 		expect(listResponse.status).toBe(200)
