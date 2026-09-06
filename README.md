@@ -4,6 +4,10 @@ EIGENT is a **web-first, self-hosted AI coding workspace** for running coding ag
 
 > **Development status:** early work in progress. Core workspace/terminal APIs and the unified agent-driver layer exist, but the main chat UI is not yet fully migrated to the new agent API.
 
+<p align="center">
+  <img src="assets/screenshots/showcase-full-dark.png" alt="EIGENT AI Coding Workspace Screenshot" width="820" />
+</p>
+
 ## Implemented so far
 
 ### Workspace and process tools
